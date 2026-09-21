@@ -736,6 +736,24 @@ impl RegistryService {
         version_id: &str,
         input: UpdateModelVersion,
     ) -> Result<ModelVersion> {
+        if let Some(source) = &input.source {
+            if let Some(value) = source.as_ref()
+                && value.trim().is_empty()
+            {
+                return Err(RegistryError::Validation(
+                    "source must not be empty".into(),
+                ));
+            }
+        }
+        if let Some(prompts) = &input.activation_prompts {
+            for prompt in prompts {
+                if prompt.chars().count() > 8_192 {
+                    return Err(RegistryError::Validation(
+                        "activation prompt exceeds 8192 characters".into(),
+                    ));
+                }
+            }
+        }
         if let Some(metadata) = &input.metadata {
             validate_extensions(metadata)?;
         }
@@ -764,6 +782,10 @@ impl RegistryService {
                 "size_bytes must be non-negative".into(),
             ));
         }
+        input.sha256 = input
+            .sha256
+            .map(|hash| hash.trim().to_ascii_lowercase())
+            .filter(|hash| !hash.is_empty());
         validate_sha256(&input.sha256)?;
         self.repo.add_file(actor, model_id, input).await
     }
