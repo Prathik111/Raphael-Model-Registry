@@ -1194,7 +1194,7 @@ pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), Serve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use registry_core::{ModelRepository, ModelType, NewModel, RegistryService, UpdateModel};
+    use registry_core::{ModelType, NewModel, RegistryService, UpdateModel};
 
     #[tokio::test]
     async fn sqlite_crud_and_revision_conflict_work() {
