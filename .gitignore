@@ -1,5 +1,4 @@
 target/
-Cargo.lock
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

@@ -775,23 +775,34 @@ impl SourceRepository for SqliteStore {
             .bind(input.external_model_id.clone()).bind(input.external_model_id.clone())
             .bind(input.external_version_id.clone()).bind(input.external_version_id.clone())
             .fetch_optional(&mut *tx).await.map_err(db_error)?;
-        let id = if let Some(row) = existing {
-            row.get::<String, _>("id")
+        let (id, event_type) = if let Some(row) = existing {
+            let id = row.get::<String, _>("id");
+            sqlx::query("UPDATE model_sources SET url=?, imported_at=?, metadata=? WHERE id=?")
+                .bind(input.url)
+                .bind(now_unix())
+                .bind(json_string(&input.metadata))
+                .bind(&id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            (id, "model.source.updated")
         } else {
             let id = new_id("source");
             sqlx::query("INSERT INTO model_sources(id,model_id,provider,external_model_id,external_version_id,url,imported_at,metadata) VALUES(?,?,?,?,?,?,?,?)")
-                .bind(&id).bind(model_id).bind(input.provider.trim()).bind(input.external_model_id).bind(input.external_version_id).bind(input.url).bind(now_unix()).bind(json_string(&input.metadata))
-                .execute(&mut *tx).await.map_err(db_error)?;
-            id
+                .bind(&id)
+                .bind(model_id)
+                .bind(input.provider.trim())
+                .bind(input.external_model_id)
+                .bind(input.external_version_id)
+                .bind(input.url)
+                .bind(now_unix())
+                .bind(json_string(&input.metadata))
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            (id, "model.source.created")
         };
-        insert_event(
-            &mut tx,
-            "model.source.updated",
-            actor,
-            Some(model_id),
-            json!({"id":id}),
-        )
-        .await?;
+        insert_event(&mut tx, event_type, actor, Some(model_id), json!({"id":id})).await?;
         tx.commit().await.map_err(db_error)?;
         let row=sqlx::query("SELECT id,model_id,provider,external_model_id,external_version_id,url,imported_at,metadata FROM model_sources WHERE id=?").bind(id).fetch_one(&self.pool).await.map_err(db_error)?;
         source_from_row(&row)
@@ -1091,6 +1102,7 @@ pub struct RegistryConfig {
     pub port: u16,
     pub auth_token: Option<String>,
     pub cors_origin: Option<String>,
+    pub allow_insecure_lan: bool,
 }
 
 impl RegistryConfig {
@@ -1118,6 +1130,10 @@ impl RegistryConfig {
             cors_origin: std::env::var("RAPHAEL_REGISTRY_CORS_ORIGIN")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
+            allow_insecure_lan: std::env::var("RAPHAEL_REGISTRY_ALLOW_INSECURE_LAN")
+                .ok()
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
         }
     }
 
@@ -1128,19 +1144,23 @@ impl RegistryConfig {
 
 pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
     fs::create_dir_all(&config.data_dir)?;
-    if let Some(token) = &config.auth_token {
-        return Ok(token.clone());
-    }
     let token_path = config.data_dir.join("registry.token");
-    if let Ok(value) = fs::read_to_string(&token_path) {
+
+    let token = if let Some(token) = &config.auth_token {
+        token.clone()
+    } else if let Ok(value) = fs::read_to_string(&token_path) {
         let token = value.trim().to_string();
         if !token.is_empty() {
-            return Ok(token);
+            token
+        } else {
+            generate_token()
         }
-    }
-    let mut bytes = [0_u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    } else {
+        generate_token()
+    };
+
+    // Keep discovery and authentication consistent even when the credential
+    // was supplied explicitly through the environment/CLI.
     fs::write(&token_path, format!("{token}\n"))?;
     #[cfg(unix)]
     {
@@ -1148,6 +1168,21 @@ pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
         let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
     }
     Ok(token)
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+}
+
+fn is_loopback_bind(bind: &str) -> bool {
+    if bind.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    bind.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 pub struct InstanceLock {
@@ -1208,6 +1243,11 @@ impl Drop for InstanceLock {
 }
 
 pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), ServerError> {
+    if !is_loopback_bind(&config.bind) && !config.allow_insecure_lan {
+        return Err(ServerError::Server(
+            "refusing plaintext HTTP on a non-loopback bind; configure HTTPS or explicitly set RAPHAEL_REGISTRY_ALLOW_INSECURE_LAN=true for a trusted network".into(),
+        ));
+    }
     fs::create_dir_all(&config.data_dir)?;
     let token = load_or_create_token(&config)?;
     let mut lock = InstanceLock::acquire(&config).await?;
@@ -1246,7 +1286,78 @@ pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), Serve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use registry_core::{ModelType, NewModel, RegistryService, UpdateModel};
+    use registry_core::{ModelType, NewModel, NewModelSource, RegistryService, UpdateModel};
+
+    #[tokio::test]
+    async fn source_upsert_updates_existing_source() {
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = RegistryService::new(store);
+        service
+            .create_model(
+                "test",
+                NewModel {
+                    id: Some("model_source_test".into()),
+                    name: "Source test".into(),
+                    model_type: ModelType::Checkpoint,
+                    creator: None,
+                    description: None,
+                    base_model: None,
+                    extensions: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        service
+            .add_source(
+                "test",
+                "model_source_test",
+                NewModelSource {
+                    provider: "civitai".into(),
+                    external_model_id: Some("123".into()),
+                    external_version_id: Some("456".into()),
+                    url: Some("https://example.invalid/old".into()),
+                    metadata: json!({"revision": 1}),
+                },
+            )
+            .await
+            .unwrap();
+
+        let updated = service
+            .add_source(
+                "test",
+                "model_source_test",
+                NewModelSource {
+                    provider: "civitai".into(),
+                    external_model_id: Some("123".into()),
+                    external_version_id: Some("456".into()),
+                    url: Some("https://example.invalid/new".into()),
+                    metadata: json!({"revision": 2}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated.url.as_deref(), Some("https://example.invalid/new"));
+        assert_eq!(updated.metadata, json!({"revision": 2}));
+        assert_eq!(
+            service
+                .list_sources("model_source_test")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn non_loopback_bind_is_not_considered_localhost() {
+        assert!(is_loopback_bind("127.0.0.1"));
+        assert!(is_loopback_bind("::1"));
+        assert!(is_loopback_bind("localhost"));
+        assert!(!is_loopback_bind("0.0.0.0"));
+        assert!(!is_loopback_bind("192.168.1.10"));
+    }
 
     #[tokio::test]
     async fn sqlite_crud_and_revision_conflict_work() {

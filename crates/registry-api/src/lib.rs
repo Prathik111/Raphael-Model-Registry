@@ -66,10 +66,11 @@ impl ApiError {
             RegistryError::Unauthorized => StatusCode::UNAUTHORIZED,
             RegistryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        Self {
-            status,
-            message: error.to_string(),
-        }
+        let message = match &error {
+            RegistryError::Storage(_) => "internal storage error".to_string(),
+            _ => error.to_string(),
+        };
+        Self { status, message }
     }
 }
 

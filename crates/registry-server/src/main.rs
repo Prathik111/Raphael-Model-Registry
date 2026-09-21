@@ -53,6 +53,9 @@ struct ServerArgs {
     auth_token: Option<String>,
     #[arg(long)]
     cors_origin: Option<String>,
+    /// Explicitly allow plaintext HTTP when binding beyond localhost.
+    #[arg(long, env = "RAPHAEL_REGISTRY_ALLOW_INSECURE_LAN")]
+    allow_insecure_lan: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -85,6 +88,9 @@ fn config(cli: &Cli) -> RegistryConfig {
         }
         if let Some(origin) = &args.cors_origin {
             config.cors_origin = Some(origin.clone());
+        }
+        if args.allow_insecure_lan {
+            config.allow_insecure_lan = true;
         }
     }
     config
@@ -241,22 +247,57 @@ async fn models_command(
             )?
         ),
         ModelsCommand::Export { path } => {
-            let result = service
-                .search_models(ModelSearch {
-                    limit: 200,
-                    ..Default::default()
-                })
-                .await?;
+            let (models, total) = export_all_models(&service).await?;
             fs::write(
                 &path,
-                serde_json::to_vec_pretty(
-                    &json!({"api_version":"v1","exported_at":registry_core::now_unix(),"models":result.items,"total":result.total}),
-                )?,
+                serde_json::to_vec_pretty(&json!({
+                    "api_version":"v1",
+                    "exported_at":registry_core::now_unix(),
+                    "models":models,
+                    "total":total
+                }))?,
             )?;
-            println!("exported {} models to {}", result.total, path.display());
+            println!("exported {} models to {}", total, path.display());
         }
     }
     Ok(())
+}
+
+async fn export_all_models(
+    service: &RegistryService,
+) -> Result<(Vec<registry_core::Model>, i64), Box<dyn std::error::Error>> {
+    const PAGE_SIZE: i64 = 200;
+    let mut offset = 0_i64;
+    let mut models = Vec::new();
+
+    let total = loop {
+        let result = service
+            .search_models(ModelSearch {
+                limit: PAGE_SIZE,
+                offset,
+                ..Default::default()
+            })
+            .await?;
+        let count = result.items.len() as i64;
+        let result_total = result.total;
+        models.extend(result.items);
+
+        if count == 0 || offset + count >= result_total {
+            break result_total;
+        }
+        offset += count;
+    };
+
+    if models.len() as i64 != total {
+        return Err(format!(
+            "export consistency check failed: collected {} models but search reported {}",
+            models.len(),
+            total
+        )
+        .into());
+    }
+
+    Ok((models, total))
 }
 
 async fn import_model_manager(
@@ -266,16 +307,23 @@ async fn import_model_manager(
     if !path.is_file() {
         return Err("legacy database file does not exist".into());
     }
+
     let options = SqliteConnectOptions::new().filename(path).read_only(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect_with(options)
         .await?;
-    let tables=sqlx::query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetch_all(&pool).await?;
+    let tables = sqlx::query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .fetch_all(&pool)
+    .await?;
     let table_names: Vec<String> = tables.iter().map(|r| r.get("name")).collect();
+
     if !table_names.iter().any(|t| t == "models") {
         return Err("legacy database has no models table".into());
     }
+
     let columns = sqlx::query("PRAGMA table_info(models)")
         .fetch_all(&pool)
         .await?;
@@ -306,61 +354,121 @@ async fn import_model_manager(
         .filter(|name| !known.contains(&name.as_str()))
         .cloned()
         .collect();
-    let rows=sqlx::query("SELECT id,path,relative_path,filename,model_type,size_bytes,modified_at,civitai_model_id,civitai_version_id,civitai_url,civitai_name,version_name,base_model,creator,description,tags_json,activation_json,source_hash,updated_at FROM models").fetch_all(&pool).await?;
+
+    let rows = sqlx::query(
+        "SELECT id,path,relative_path,filename,model_type,size_bytes,modified_at,civitai_model_id,civitai_version_id,civitai_url,civitai_name,version_name,base_model,creator,description,tags_json,activation_json,source_hash,updated_at FROM models",
+    )
+    .fetch_all(&pool)
+    .await?;
     let models_discovered = rows.len() as u64;
     let service = RegistryService::new(store.clone());
     let mut imported = 0_u64;
     let mut failed = Vec::new();
+
     for row in rows {
         let legacy_id: i64 = row.get("id");
         let model_id = format!("legacy_model_{legacy_id}");
-        let model_type = row
-            .get::<String, _>("model_type")
-            .parse::<ModelType>()
-            .unwrap_or(ModelType::Other);
-        let result=service.create_model("model-manager-import",registry_core::NewModel{
-            id:Some(model_id.clone()),
-            name:optional_legacy_name(&row),
-            model_type,
-            creator:optional_legacy_string(&row,"creator"),
-            description:optional_legacy_string(&row,"description"),
-            base_model:optional_legacy_string(&row,"base_model"),
-            extensions:json!({"legacy_model_manager_id":legacy_id,"legacy_path":row.get::<String,_>("path")}),
-        }).await;
-        let model = match result {
-            Ok(model) => model,
-            Err(registry_core::RegistryError::Conflict(_)) => {
-                match service.get_model(&model_id).await {
-                    Ok(model) => model,
-                    Err(error) => {
-                        failed.push(json!({"id":legacy_id,"error":error.to_string()}));
-                        continue;
-                    }
-                }
-            }
+
+        let model_type = match row.get::<String, _>("model_type").parse::<ModelType>() {
+            Ok(value) => value,
             Err(error) => {
-                failed.push(json!({"id":legacy_id,"error":error.to_string()}));
+                failed.push(json!({
+                    "id": legacy_id,
+                    "stage": "model",
+                    "error": format!("invalid legacy model_type: {error}")
+                }));
                 continue;
             }
         };
-        let tags: Vec<String> = optional_legacy_string(&row, "tags_json")
-            .and_then(|v| serde_json::from_str(&v).ok())
-            .unwrap_or_default();
+
+        let tags: Vec<String> = match optional_legacy_string(&row, "tags_json") {
+            Some(value) => match serde_json::from_str(&value) {
+                Ok(value) => value,
+                Err(error) => {
+                    failed.push(json!({
+                        "id": legacy_id,
+                        "stage": "tags",
+                        "error": format!("invalid tags_json: {error}")
+                    }));
+                    continue;
+                }
+            },
+            None => Vec::new(),
+        };
+
+        let activation_prompts: Vec<String> = match optional_legacy_string(&row, "activation_json")
+        {
+            Some(value) => match serde_json::from_str(&value) {
+                Ok(value) => value,
+                Err(error) => {
+                    failed.push(json!({
+                        "id": legacy_id,
+                        "stage": "version",
+                        "error": format!("invalid activation_json: {error}")
+                    }));
+                    continue;
+                }
+            },
+            None => Vec::new(),
+        };
+
+        let model = match service
+            .create_model(
+                "model-manager-import",
+                registry_core::NewModel {
+                    id: Some(model_id.clone()),
+                    name: optional_legacy_name(&row),
+                    model_type,
+                    creator: optional_legacy_string(&row, "creator"),
+                    description: optional_legacy_string(&row, "description"),
+                    base_model: optional_legacy_string(&row, "base_model"),
+                    extensions: json!({
+                        "legacy_model_manager_id": legacy_id,
+                        "legacy_path": row.get::<String, _>("path")
+                    }),
+                },
+            )
+            .await
+        {
+            Ok(model) => (model, true),
+            Err(registry_core::RegistryError::Conflict(_)) => match service
+                .get_model(&model_id)
+                .await
+            {
+                Ok(model) => (model, false),
+                Err(error) => {
+                    failed.push(json!({"id":legacy_id,"stage":"model","error":error.to_string()}));
+                    continue;
+                }
+            },
+            Err(error) => {
+                failed.push(json!({"id":legacy_id,"stage":"model","error":error.to_string()}));
+                continue;
+            }
+        };
+
+        let (model, created_new) = model;
+        let mut item_error: Option<(String, String)> = None;
+
         for tag in tags {
             if let Err(error) = service
                 .add_tag("model-manager-import", &model.id, &tag)
                 .await
             {
-                failed.push(json!({"id":legacy_id,"stage":"tag","error":error.to_string()}));
+                item_error = Some(("tag".into(), error.to_string()));
+                break;
             }
         }
+
         let civitai_model_id: Option<i64> = row.try_get("civitai_model_id").ok();
         let civitai_version_id: Option<i64> = row.try_get("civitai_version_id").ok();
-        if civitai_model_id.is_some()
-            || civitai_version_id.is_some()
-            || optional_legacy_string(&row, "civitai_url").is_some()
+
+        if item_error.is_none()
+            && (civitai_model_id.is_some()
+                || civitai_version_id.is_some()
+                || optional_legacy_string(&row, "civitai_url").is_some())
         {
-            let _ = service
+            if let Err(error) = service
                 .add_source(
                     "model-manager-import",
                     &model.id,
@@ -372,60 +480,125 @@ async fn import_model_manager(
                         metadata: json!({"legacy_model_manager_id":legacy_id}),
                     },
                 )
-                .await?;
+                .await
+            {
+                item_error = Some(("source".into(), error.to_string()));
+            }
         }
-        let version = service
-            .create_version(
-                "model-manager-import",
-                &model.id,
-                registry_core::NewModelVersion {
-                    id: Some(format!("legacy_version_{legacy_id}")),
-                    version_name: optional_legacy_string(&row, "version_name"),
-                    base_model: optional_legacy_string(&row, "base_model"),
-                    source: civitai_version_id.is_some().then_some("civitai".into()),
-                    source_model_id: civitai_model_id.map(|v| v.to_string()),
-                    source_version_id: civitai_version_id.map(|v| v.to_string()),
-                    source_url: optional_legacy_string(&row, "civitai_url"),
-                    activation_prompts: optional_legacy_string(&row, "activation_json")
-                        .and_then(|v| serde_json::from_str(&v).ok())
-                        .unwrap_or_default(),
-                    metadata: json!({"legacy_model_manager_id":legacy_id}),
-                },
-            )
-            .await?;
-        service
-            .add_file(
-                "model-manager-import",
-                &model.id,
-                registry_core::NewModelFile {
-                    id: Some(format!("legacy_file_{legacy_id}")),
-                    version_id: Some(version.id),
-                    path: row.get("path"),
-                    relative_path: optional_legacy_string(&row, "relative_path"),
-                    filename: row.get("filename"),
-                    size_bytes: row.get("size_bytes"),
-                    modified_at: row.get("modified_at"),
-                    sha256: optional_legacy_string(&row, "source_hash"),
-                    status: registry_core::FileStatus::Available,
-                },
-            )
-            .await?;
+
+        if item_error.is_none() {
+            match service
+                .create_version(
+                    "model-manager-import",
+                    &model.id,
+                    registry_core::NewModelVersion {
+                        id: Some(format!("legacy_version_{legacy_id}")),
+                        version_name: optional_legacy_string(&row, "version_name"),
+                        base_model: optional_legacy_string(&row, "base_model"),
+                        source: civitai_version_id.is_some().then_some("civitai".into()),
+                        source_model_id: civitai_model_id.map(|v| v.to_string()),
+                        source_version_id: civitai_version_id.map(|v| v.to_string()),
+                        source_url: optional_legacy_string(&row, "civitai_url"),
+                        activation_prompts,
+                        metadata: json!({"legacy_model_manager_id":legacy_id}),
+                    },
+                )
+                .await
+            {
+                Ok(version) => {
+                    if let Err(error) = service
+                        .add_file(
+                            "model-manager-import",
+                            &model.id,
+                            registry_core::NewModelFile {
+                                id: Some(format!("legacy_file_{legacy_id}")),
+                                version_id: Some(version.id),
+                                path: row.get("path"),
+                                relative_path: optional_legacy_string(&row, "relative_path"),
+                                filename: row.get("filename"),
+                                size_bytes: row.get("size_bytes"),
+                                modified_at: row.get("modified_at"),
+                                sha256: optional_legacy_string(&row, "source_hash"),
+                                status: registry_core::FileStatus::Available,
+                            },
+                        )
+                        .await
+                    {
+                        item_error = Some(("file".into(), error.to_string()));
+                    }
+                }
+                Err(error) => {
+                    item_error = Some(("version".into(), error.to_string()));
+                }
+            }
+        }
+
+        if let Some((stage, error)) = item_error {
+            if created_new {
+                if let Err(rollback_error) = service
+                    .delete_model("model-manager-import", &model.id)
+                    .await
+                {
+                    failed.push(json!({
+                        "id": legacy_id,
+                        "stage": "rollback",
+                        "error": rollback_error.to_string()
+                    }));
+                }
+            }
+            failed.push(json!({"id":legacy_id,"stage":stage,"error":error}));
+            continue;
+        }
+
         imported += 1;
     }
+
     let image_import = if table_names.iter().any(|t| t == "images") {
-        let image_rows=sqlx::query("SELECT model_id,civitai_image_id,local_path,thumbnail_path,width,height,prompt,negative_prompt,steps,cfg,sampler,seed,meta_json FROM images").fetch_all(&pool).await?;
+        let image_rows = sqlx::query(
+            "SELECT model_id,civitai_image_id,local_path,thumbnail_path,width,height,prompt,negative_prompt,steps,cfg,sampler,seed,meta_json FROM images",
+        )
+        .fetch_all(&pool)
+        .await?;
         let mut count = 0_u64;
+
         for row in image_rows {
             let legacy_id: i64 = row.get("model_id");
             let model_id = format!("legacy_model_{legacy_id}");
             if service.get_model(&model_id).await.is_ok() {
                 for column in ["local_path", "thumbnail_path"] {
                     if let Some(path) = optional_legacy_string(&row, column) {
-                        let _=service.add_asset("model-manager-import",&model_id,registry_core::NewModelAsset{
-                            id:None,kind:AssetKind::Gallery,path,source:Some("civitai".into()),
-                            metadata:json!({"legacy_civitai_image_id":row.get::<i64,_>("civitai_image_id"),"width":row.try_get::<Option<i64>,_>("width").ok().flatten(),"height":row.try_get::<Option<i64>,_>("height").ok().flatten(),"prompt":row.try_get::<Option<String>,_>("prompt").ok().flatten(),"negative_prompt":row.try_get::<Option<String>,_>("negative_prompt").ok().flatten(),"steps":row.try_get::<Option<i64>,_>("steps").ok().flatten(),"cfg":row.try_get::<Option<f64>,_>("cfg").ok().flatten(),"sampler":row.try_get::<Option<String>,_>("sampler").ok().flatten(),"seed":row.try_get::<Option<i64>,_>("seed").ok().flatten(),"meta_json":row.try_get::<Option<String>,_>("meta_json").ok().flatten()})
-                        }).await?;
-                        count += 1;
+                        match service
+                            .add_asset(
+                                "model-manager-import",
+                                &model_id,
+                                registry_core::NewModelAsset {
+                                    id: None,
+                                    kind: AssetKind::Gallery,
+                                    path,
+                                    source: Some("civitai".into()),
+                                    metadata: json!({
+                                        "legacy_civitai_image_id": row.get::<i64,_>("civitai_image_id"),
+                                        "width": row.try_get::<Option<i64>,_>("width").ok().flatten(),
+                                        "height": row.try_get::<Option<i64>,_>("height").ok().flatten(),
+                                        "prompt": row.try_get::<Option<String>,_>("prompt").ok().flatten(),
+                                        "negative_prompt": row.try_get::<Option<String>,_>("negative_prompt").ok().flatten(),
+                                        "steps": row.try_get::<Option<i64>,_>("steps").ok().flatten(),
+                                        "cfg": row.try_get::<Option<f64>,_>("cfg").ok().flatten(),
+                                        "sampler": row.try_get::<Option<String>,_>("sampler").ok().flatten(),
+                                        "seed": row.try_get::<Option<i64>,_>("seed").ok().flatten(),
+                                        "meta_json": row.try_get::<Option<String>,_>("meta_json").ok().flatten()
+                                    }),
+                                },
+                            )
+                            .await
+                        {
+                            Ok(_) => count += 1,
+                            Err(error) => failed.push(json!({
+                                "id": legacy_id,
+                                "stage": "image",
+                                "error": error.to_string()
+                            })),
+                        }
                     }
                 }
             } else {
@@ -436,10 +609,17 @@ async fn import_model_manager(
     } else {
         0
     };
+
     pool.close().await;
-    Ok(
-        json!({"models_discovered":models_discovered,"models_imported":imported,"models_failed":failed.len(),"gallery_assets_imported":image_import,"legacy_tables":table_names,"unmapped_model_columns":unmapped,"failures":failed}),
-    )
+    Ok(json!({
+        "models_discovered": models_discovered,
+        "models_imported": imported,
+        "models_failed": failed.iter().filter(|failure| failure.get("stage").and_then(|v| v.as_str()) != Some("image")).count(),
+        "gallery_assets_imported": image_import,
+        "legacy_tables": table_names,
+        "unmapped_model_columns": unmapped,
+        "failures": failed
+    }))
 }
 
 fn optional_legacy_string(row: &sqlx::sqlite::SqliteRow, name: &str) -> Option<String> {
@@ -450,4 +630,38 @@ fn optional_legacy_name(row: &sqlx::sqlite::SqliteRow) -> String {
     optional_legacy_string(row, "civitai_name")
         .or_else(|| optional_legacy_string(row, "filename"))
         .unwrap_or_else(|| "Imported model".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use registry_core::{ModelType, NewModel, RegistryService};
+
+    #[tokio::test]
+    async fn export_collects_more_than_one_page() {
+        let store = std::sync::Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = RegistryService::new(store);
+
+        for index in 0..205 {
+            service
+                .create_model(
+                    "test",
+                    NewModel {
+                        id: Some(format!("export_model_{index}")),
+                        name: format!("Export model {index}"),
+                        model_type: ModelType::Checkpoint,
+                        creator: None,
+                        description: None,
+                        base_model: None,
+                        extensions: serde_json::json!({}),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        let (models, total) = export_all_models(&service).await.unwrap();
+        assert_eq!(total, 205);
+        assert_eq!(models.len(), 205);
+    }
 }
