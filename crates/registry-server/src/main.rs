@@ -614,3 +614,38 @@ fn optional_legacy_name(row: &sqlx::sqlite::SqliteRow) -> String {
         .or_else(|| optional_legacy_string(row, "filename"))
         .unwrap_or_else(|| "Imported model".into())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use registry_core::{ModelType, NewModel, RegistryService};
+
+    #[tokio::test]
+    async fn export_collects_more_than_one_page() {
+        let store = std::sync::Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = RegistryService::new(store);
+
+        for index in 0..205 {
+            service
+                .create_model(
+                    "test",
+                    NewModel {
+                        id: Some(format!("export_model_{index}")),
+                        name: format!("Export model {index}"),
+                        model_type: ModelType::Checkpoint,
+                        creator: None,
+                        description: None,
+                        base_model: None,
+                        extensions: serde_json::json!({}),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        let (models, total) = export_all_models(&service).await.unwrap();
+        assert_eq!(total, 205);
+        assert_eq!(models.len(), 205);
+    }
+}
