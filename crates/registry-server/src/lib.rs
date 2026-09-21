@@ -38,12 +38,6 @@ fn db_error(error: sqlx::Error) -> RegistryError {
     RegistryError::Storage(error.to_string())
 }
 
-fn parse_json<T: serde::de::DeserializeOwned + Default>(value: Option<String>) -> T {
-    value
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or_default()
-}
-
 fn json_string(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
 }
@@ -71,8 +65,16 @@ fn model_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Model> {
 }
 
 fn version_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ModelVersion> {
+    let activation_prompts =
+        serde_json::from_str::<Vec<String>>(&row.get::<String, _>("activation_prompts"))
+            .map_err(|e| RegistryError::Storage(format!("invalid activation prompts: {e}")))?;
     let metadata = serde_json::from_str::<Value>(&row.get::<String, _>("metadata"))
         .map_err(|e| RegistryError::Storage(format!("invalid version metadata: {e}")))?;
+    if !metadata.is_object() {
+        return Err(RegistryError::Storage(
+            "version metadata must be a JSON object".into(),
+        ));
+    }
     Ok(ModelVersion {
         id: row.get("id"),
         model_id: row.get("model_id"),
@@ -83,7 +85,7 @@ fn version_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ModelVersion> {
         source_model_id: optional_string(row, "source_model_id"),
         source_version_id: optional_string(row, "source_version_id"),
         source_url: optional_string(row, "source_url"),
-        activation_prompts: parse_json(Some(row.get::<String, _>("activation_prompts"))),
+        activation_prompts,
         metadata,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -930,13 +932,19 @@ impl EventRepository for SqliteStore {
             .bind(after_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(db_error)?;
         rows.into_iter()
             .map(|row| {
+                let payload = serde_json::from_str::<Value>(&row.get::<String, _>("payload"))
+                    .map_err(|e| RegistryError::Storage(format!("invalid event payload: {e}")))?;
+                if !payload.is_object() {
+                    return Err(RegistryError::Storage(
+                        "event payload must be a JSON object".into(),
+                    ));
+                }
                 Ok(RegistryEvent {
                     id: row.get("id"),
                     event_type: row.get("event_type"),
                     actor: row.get("actor"),
                     model_id: optional_string(&row, "model_id"),
-                    payload: serde_json::from_str(&row.get::<String, _>("payload"))
-                        .unwrap_or_else(|_| json!({})),
+                    payload,
                     created_at: row.get("created_at"),
                 })
             })
@@ -1002,8 +1010,33 @@ impl EventRepository for SqliteStore {
         for row in sqlx::query("SELECT sha256,COUNT(*) AS count FROM model_files WHERE sha256 IS NOT NULL AND trim(sha256)<>'' GROUP BY lower(sha256) HAVING COUNT(*)>1").fetch_all(&self.pool).await.map_err(db_error)? {
             issues.push(IntegrityIssue{code:"duplicate_hash".into(),message:format!("sha256 '{}' is attached to {} files",row.get::<String,_>("sha256"),row.get::<i64,_>("count")),entity:Some("model_file".into()),id:None});
         }
-        for row in sqlx::query("SELECT id FROM models WHERE json_valid(extensions)=0 UNION ALL SELECT id FROM model_versions WHERE json_valid(metadata)=0 UNION ALL SELECT id FROM model_assets WHERE json_valid(metadata)=0 UNION ALL SELECT id FROM model_sources WHERE json_valid(metadata)=0 UNION ALL SELECT id FROM model_relationships WHERE json_valid(metadata)=0").fetch_all(&self.pool).await.map_err(db_error)? {
-            issues.push(IntegrityIssue{code:"bad_json".into(),message:"stored metadata is not valid JSON".into(),entity:None,id:Some(row.get("id"))});
+        for row in sqlx::query(
+            "SELECT id FROM models WHERE json_valid(extensions)=0 OR json_type(extensions) <> 'object'
+             UNION ALL
+             SELECT id FROM model_versions WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM model_versions WHERE json_valid(activation_prompts)=0 OR json_type(activation_prompts) <> 'array'
+             UNION ALL
+             SELECT id FROM model_assets WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM model_sources WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM model_relationships WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT CAST(id AS TEXT) AS id
+             FROM registry_events
+             WHERE json_valid(payload)=0 OR json_type(payload) <> 'object'",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_error)?
+        {
+            issues.push(IntegrityIssue {
+                code: "bad_json".into(),
+                message: "stored JSON has invalid syntax or an unexpected type".into(),
+                entity: None,
+                id: Some(row.get("id")),
+            });
         }
         for row in
             sqlx::query("SELECT id FROM model_files WHERE trim(path)='' OR trim(filename)=''")
@@ -1177,10 +1210,10 @@ impl Drop for InstanceLock {
 pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), ServerError> {
     fs::create_dir_all(&config.data_dir)?;
     let token = load_or_create_token(&config)?;
+    let mut lock = InstanceLock::acquire(&config).await?;
     let listener = TcpListener::bind(config.address())
         .await
         .map_err(|e| ServerError::Server(format!("cannot bind {}: {e}", config.address())))?;
-    let mut lock = InstanceLock::acquire(&config).await?;
     lock.write_info(
         &config.bind,
         config.port,
@@ -1494,6 +1527,144 @@ mod tests {
         assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
 
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn validation_normalizes_hashes_and_detects_corrupt_version_json() {
+        use registry_core::{
+            FileStatus, ModelType, NewModel, NewModelFile, NewModelVersion, UpdateModelVersion,
+        };
+
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = registry_core::RegistryService::new(store.clone());
+        let model = service
+            .create_model(
+                "test",
+                NewModel {
+                    id: Some("model_validation".into()),
+                    name: "Validation".into(),
+                    model_type: ModelType::Checkpoint,
+                    creator: None,
+                    description: None,
+                    base_model: Some("sdxl".into()),
+                    extensions: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        let version = service
+            .create_version(
+                "test",
+                &model.id,
+                NewModelVersion {
+                    id: None,
+                    version_name: Some("v1".into()),
+                    base_model: None,
+                    source: None,
+                    source_model_id: None,
+                    source_version_id: None,
+                    source_url: None,
+                    activation_prompts: Vec::new(),
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        let file = service
+            .add_file(
+                "test",
+                &model.id,
+                NewModelFile {
+                    version_id: Some(version.id.clone()),
+                    path: "model.safetensors".into(),
+                    relative_path: None,
+                    filename: "model.safetensors".into(),
+                    size_bytes: 1,
+                    modified_at: 1,
+                    sha256: Some(format!("  {}  ", "A".repeat(64))),
+                    status: FileStatus::Available,
+                    id: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(file.sha256.as_deref(), Some("a".repeat(64).as_str()));
+
+        let invalid_source_metadata = service
+            .add_source(
+                "test",
+                &model.id,
+                registry_core::NewModelSource {
+                    provider: "civitai".into(),
+                    external_model_id: None,
+                    external_version_id: None,
+                    url: None,
+                    metadata: json!([]),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            invalid_source_metadata,
+            RegistryError::Validation(_)
+        ));
+
+        let invalid_source = service
+            .update_version(
+                "test",
+                &model.id,
+                &version.id,
+                UpdateModelVersion {
+                    source: Some(Some("   ".into())),
+                    expected_revision: version.revision,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(invalid_source, RegistryError::Validation(_)));
+
+        let invalid_prompt = service
+            .update_version(
+                "test",
+                &model.id,
+                &version.id,
+                UpdateModelVersion {
+                    activation_prompts: Some(vec!["x".repeat(8_193)]),
+                    expected_revision: version.revision,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(invalid_prompt, RegistryError::Validation(_)));
+
+        sqlx::query("UPDATE model_versions SET activation_prompts='{}' WHERE id=?")
+            .bind(&version.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        let corrupt_read = service
+            .get_version(&model.id, &version.id)
+            .await
+            .unwrap_err();
+        assert!(matches!(corrupt_read, RegistryError::Storage(_)));
+
+        sqlx::query("UPDATE registry_events SET payload='[]' WHERE id=1")
+            .execute(store.pool())
+            .await
+            .unwrap();
+        let corrupt_event = service.list_events(0, 100).await.unwrap_err();
+        assert!(matches!(corrupt_event, RegistryError::Storage(_)));
+
+        sqlx::query("UPDATE model_versions SET metadata='[]' WHERE id=?")
+            .bind(&version.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        let report = service.integrity_report().await.unwrap();
+        assert!(!report.ok);
+        assert!(report.issues.iter().any(|issue| issue.code == "bad_json"));
     }
 
     #[tokio::test]

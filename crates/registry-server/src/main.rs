@@ -159,8 +159,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !path.is_file() {
                 return Err("backup file does not exist".into());
             }
+            let _instance_lock = registry_server::InstanceLock::acquire(&cfg).await?;
             let store = SqliteStore::connect(&cfg.database_path).await?;
             store.pool().close().await;
+            let wal_path = PathBuf::from(format!("{}-wal", cfg.database_path.display()));
+            let shm_path = PathBuf::from(format!("{}-shm", cfg.database_path.display()));
+            let _ = fs::remove_file(&wal_path);
+            let _ = fs::remove_file(&shm_path);
             fs::copy(&path, &cfg.database_path)?;
             verify_sqlite_backup(&cfg.database_path).await?;
             println!("restored and verified: {}", cfg.database_path.display());
@@ -302,6 +307,7 @@ async fn import_model_manager(
         .cloned()
         .collect();
     let rows=sqlx::query("SELECT id,path,relative_path,filename,model_type,size_bytes,modified_at,civitai_model_id,civitai_version_id,civitai_url,civitai_name,version_name,base_model,creator,description,tags_json,activation_json,source_hash,updated_at FROM models").fetch_all(&pool).await?;
+    let models_discovered = rows.len() as u64;
     let service = RegistryService::new(store.clone());
     let mut imported = 0_u64;
     let mut failed = Vec::new();
@@ -432,7 +438,7 @@ async fn import_model_manager(
     };
     pool.close().await;
     Ok(
-        json!({"models_discovered":imported+failed.len() as u64,"models_imported":imported,"models_failed":failed.len(),"gallery_assets_imported":image_import,"legacy_tables":table_names,"unmapped_model_columns":unmapped,"failures":failed}),
+        json!({"models_discovered":models_discovered,"models_imported":imported,"models_failed":failed.len(),"gallery_assets_imported":image_import,"legacy_tables":table_names,"unmapped_model_columns":unmapped,"failures":failed}),
     )
 }
 
