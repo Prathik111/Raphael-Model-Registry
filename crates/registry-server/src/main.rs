@@ -269,9 +269,8 @@ async fn export_all_models(
     const PAGE_SIZE: i64 = 200;
     let mut offset = 0_i64;
     let mut models = Vec::new();
-    let mut total = None;
 
-    loop {
+    let total = loop {
         let result = service
             .search_models(ModelSearch {
                 limit: PAGE_SIZE,
@@ -279,16 +278,15 @@ async fn export_all_models(
                 ..Default::default()
             })
             .await?;
-        total = Some(result.total);
         let count = result.items.len() as i64;
+        let result_total = result.total;
         models.extend(result.items);
-        if count == 0 || offset + count >= result.total as i64 {
-            break;
+
+        if count == 0 || offset + count >= result_total {
+            break result_total;
         }
         offset += count;
-    }
-
-    let total = total.unwrap_or(0);
+    };
 
     if models.len() as i64 != total {
         return Err(format!(
