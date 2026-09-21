@@ -385,19 +385,19 @@ async fn import_model_manager(
 
         let activation_prompts: Vec<String> = match optional_legacy_string(&row, "activation_json")
         {
-                Some(value) => match serde_json::from_str(&value) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        failed.push(json!({
-                            "id": legacy_id,
-                            "stage": "version",
-                            "error": format!("invalid activation_json: {error}")
-                        }));
-                        continue;
-                    }
-                },
-                None => Vec::new(),
-            };
+            Some(value) => match serde_json::from_str(&value) {
+                Ok(value) => value,
+                Err(error) => {
+                    failed.push(json!({
+                        "id": legacy_id,
+                        "stage": "version",
+                        "error": format!("invalid activation_json: {error}")
+                    }));
+                    continue;
+                }
+            },
+            None => Vec::new(),
+        };
 
         let model = match service
             .create_model(
