@@ -20,7 +20,7 @@ jobs:
         run: cargo generate-lockfile
       - name: Commit lockfile
         run: |
-          if git status --porcelain -- Cargo.lock | grep -q "^"; then
+          if ! git status --porcelain -- Cargo.lock | grep -q .; then
             echo "Cargo.lock is already tracked/current."
             exit 0
           fi
