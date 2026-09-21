@@ -1348,7 +1348,11 @@ mod tests {
         assert_eq!(updated.url.as_deref(), Some("https://example.invalid/new"));
         assert_eq!(updated.metadata, json!({"revision": 2}));
         assert_eq!(
-            service.list_sources("model_source_test").await.unwrap().len(),
+            service
+                .list_sources("model_source_test")
+                .await
+                .unwrap()
+                .len(),
             1
         );
     }
