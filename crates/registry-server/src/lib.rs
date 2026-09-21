@@ -1200,10 +1200,10 @@ impl Drop for InstanceLock {
 pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), ServerError> {
     fs::create_dir_all(&config.data_dir)?;
     let token = load_or_create_token(&config)?;
+    let mut lock = InstanceLock::acquire(&config).await?;
     let listener = TcpListener::bind(config.address())
         .await
         .map_err(|e| ServerError::Server(format!("cannot bind {}: {e}", config.address())))?;
-    let mut lock = InstanceLock::acquire(&config).await?;
     lock.write_info(
         &config.bind,
         config.port,
