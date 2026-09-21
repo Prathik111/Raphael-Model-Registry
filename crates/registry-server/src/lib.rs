@@ -38,12 +38,6 @@ fn db_error(error: sqlx::Error) -> RegistryError {
     RegistryError::Storage(error.to_string())
 }
 
-fn parse_json<T: serde::de::DeserializeOwned + Default>(value: Option<String>) -> T {
-    value
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or_default()
-}
-
 fn json_string(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
 }
@@ -71,8 +65,16 @@ fn model_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Model> {
 }
 
 fn version_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ModelVersion> {
+    let activation_prompts =
+        serde_json::from_str::<Vec<String>>(&row.get::<String, _>("activation_prompts"))
+            .map_err(|e| RegistryError::Storage(format!("invalid activation prompts: {e}")))?;
     let metadata = serde_json::from_str::<Value>(&row.get::<String, _>("metadata"))
         .map_err(|e| RegistryError::Storage(format!("invalid version metadata: {e}")))?;
+    if !metadata.is_object() {
+        return Err(RegistryError::Storage(
+            "version metadata must be a JSON object".into(),
+        ));
+    }
     Ok(ModelVersion {
         id: row.get("id"),
         model_id: row.get("model_id"),
@@ -83,7 +85,7 @@ fn version_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ModelVersion> {
         source_model_id: optional_string(row, "source_model_id"),
         source_version_id: optional_string(row, "source_version_id"),
         source_url: optional_string(row, "source_url"),
-        activation_prompts: parse_json(Some(row.get::<String, _>("activation_prompts"))),
+        activation_prompts,
         metadata,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -1002,8 +1004,29 @@ impl EventRepository for SqliteStore {
         for row in sqlx::query("SELECT sha256,COUNT(*) AS count FROM model_files WHERE sha256 IS NOT NULL AND trim(sha256)<>'' GROUP BY lower(sha256) HAVING COUNT(*)>1").fetch_all(&self.pool).await.map_err(db_error)? {
             issues.push(IntegrityIssue{code:"duplicate_hash".into(),message:format!("sha256 '{}' is attached to {} files",row.get::<String,_>("sha256"),row.get::<i64,_>("count")),entity:Some("model_file".into()),id:None});
         }
-        for row in sqlx::query("SELECT id FROM models WHERE json_valid(extensions)=0 UNION ALL SELECT id FROM model_versions WHERE json_valid(metadata)=0 UNION ALL SELECT id FROM model_assets WHERE json_valid(metadata)=0 UNION ALL SELECT id FROM model_sources WHERE json_valid(metadata)=0 UNION ALL SELECT id FROM model_relationships WHERE json_valid(metadata)=0").fetch_all(&self.pool).await.map_err(db_error)? {
-            issues.push(IntegrityIssue{code:"bad_json".into(),message:"stored metadata is not valid JSON".into(),entity:None,id:Some(row.get("id"))});
+        for row in sqlx::query(
+            "SELECT id FROM models WHERE json_valid(extensions)=0 OR json_type(extensions) <> 'object'
+             UNION ALL
+             SELECT id FROM model_versions WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM model_versions WHERE json_valid(activation_prompts)=0 OR json_type(activation_prompts) <> 'array'
+             UNION ALL
+             SELECT id FROM model_assets WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM model_sources WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM model_relationships WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_error)?
+        {
+            issues.push(IntegrityIssue {
+                code: "bad_json".into(),
+                message: "stored JSON has invalid syntax or an unexpected type".into(),
+                entity: None,
+                id: Some(row.get("id")),
+            });
         }
         for row in
             sqlx::query("SELECT id FROM model_files WHERE trim(path)='' OR trim(filename)=''")
