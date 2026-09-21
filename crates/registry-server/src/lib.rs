@@ -1582,6 +1582,25 @@ mod tests {
             .unwrap();
         assert_eq!(file.sha256.as_deref(), Some("a".repeat(64).as_str()));
 
+        let invalid_source_metadata = service
+            .add_source(
+                "test",
+                &model.id,
+                registry_core::NewModelSource {
+                    provider: "civitai".into(),
+                    external_model_id: None,
+                    external_version_id: None,
+                    url: None,
+                    metadata: json!([]),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            invalid_source_metadata,
+            RegistryError::Validation(_)
+        ));
+
         let invalid_source = service
             .update_version(
                 "test",
@@ -1622,6 +1641,13 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(corrupt_read, RegistryError::Storage(_)));
+
+        sqlx::query("UPDATE registry_events SET payload='[]' WHERE id=1")
+            .execute(store.pool())
+            .await
+            .unwrap();
+        let corrupt_event = service.list_events(0, 100).await.unwrap_err();
+        assert!(matches!(corrupt_event, RegistryError::Storage(_)));
 
         sqlx::query("UPDATE model_versions SET metadata='[]' WHERE id=?")
             .bind(&version.id)
