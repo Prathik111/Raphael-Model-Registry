@@ -1555,9 +1555,15 @@ mod tests {
                 "test",
                 &model.id,
                 NewModelVersion {
+                    id: None,
                     version_name: Some("v1".into()),
+                    base_model: None,
+                    source: None,
+                    source_model_id: None,
+                    source_version_id: None,
+                    source_url: None,
+                    activation_prompts: Vec::new(),
                     metadata: json!({}),
-                    ..Default::default()
                 },
             )
             .await
