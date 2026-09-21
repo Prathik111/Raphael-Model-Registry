@@ -1,6 +1,6 @@
 use registry_core::{
-    Model, ModelSearch, NewModel, NewModelFile, NewModelRelationship, NewModelSource, NewModelVersion,
-    RegistryEvent, SearchResult, UpdateModel, UpdateModelVersion,
+    Model, ModelSearch, NewModel, NewModelFile, NewModelRelationship, NewModelSource,
+    NewModelVersion, RegistryEvent, SearchResult, UpdateModel, UpdateModelVersion,
 };
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
@@ -68,7 +68,10 @@ impl RegistryClient {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ClientError::Api { status, message: body });
+            return Err(ClientError::Api {
+                status,
+                message: body,
+            });
         }
         Ok(response.json::<T>().await?)
     }
@@ -82,10 +85,7 @@ impl RegistryClient {
             .unwrap_or(false)
     }
 
-    pub async fn ensure_running(
-        &self,
-        executable: impl AsRef<Path>,
-    ) -> Result<(), ClientError> {
+    pub async fn ensure_running(&self, executable: impl AsRef<Path>) -> Result<(), ClientError> {
         if self.health().await {
             return Ok(());
         }
@@ -115,88 +115,193 @@ impl RegistryClient {
     pub async fn search(&self, mut query: ModelSearch) -> Result<SearchResult, ClientError> {
         query.limit = query.limit.clamp(1, 200);
         let mut params = Vec::new();
-        if let Some(q) = query.q { params.push(("q", q)); }
-        if let Some(model_type) = query.model_type { params.push(("model_type", model_type.to_string())); }
-        if let Some(tag) = query.tag { params.push(("tag", tag)); }
-        if let Some(creator) = query.creator { params.push(("creator", creator)); }
-        if let Some(base_model) = query.base_model { params.push(("base_model", base_model)); }
-        if let Some(source) = query.source { params.push(("source", source)); }
-        if let Some(hash) = query.hash { params.push(("hash", hash)); }
+        if let Some(q) = query.q {
+            params.push(("q", q));
+        }
+        if let Some(model_type) = query.model_type {
+            params.push(("model_type", model_type.to_string()));
+        }
+        if let Some(tag) = query.tag {
+            params.push(("tag", tag));
+        }
+        if let Some(creator) = query.creator {
+            params.push(("creator", creator));
+        }
+        if let Some(base_model) = query.base_model {
+            params.push(("base_model", base_model));
+        }
+        if let Some(source) = query.source {
+            params.push(("source", source));
+        }
+        if let Some(hash) = query.hash {
+            params.push(("hash", hash));
+        }
         params.push(("limit", query.limit.to_string()));
         params.push(("offset", query.offset.max(0).to_string()));
-        self.send_json(self.request(reqwest::Method::GET, "/api/v1/models").query(&params)).await
+        self.send_json(
+            self.request(reqwest::Method::GET, "/api/v1/models")
+                .query(&params),
+        )
+        .await
     }
 
     pub async fn create(&self, model: &NewModel) -> Result<Model, ClientError> {
-        self.send_json(self.request(reqwest::Method::POST, "/api/v1/models").json(model)).await
+        self.send_json(
+            self.request(reqwest::Method::POST, "/api/v1/models")
+                .json(model),
+        )
+        .await
     }
 
     pub async fn update(&self, id: &str, model: &UpdateModel) -> Result<Model, ClientError> {
-        self.send_json(self.request(reqwest::Method::PATCH, &format!("/api/v1/models/{id}")).json(model)).await
+        self.send_json(
+            self.request(reqwest::Method::PATCH, &format!("/api/v1/models/{id}"))
+                .json(model),
+        )
+        .await
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), ClientError> {
-        let response = self.request(reqwest::Method::DELETE, &format!("/api/v1/models/{id}")).send().await?;
+        let response = self
+            .request(reqwest::Method::DELETE, &format!("/api/v1/models/{id}"))
+            .send()
+            .await?;
         if response.status().is_success() {
             Ok(())
         } else {
             let status = response.status();
-            Err(ClientError::Api { status, message: response.text().await.unwrap_or_default() })
+            Err(ClientError::Api {
+                status,
+                message: response.text().await.unwrap_or_default(),
+            })
         }
     }
 
-    pub async fn versions(&self, id: &str) -> Result<Vec<registry_core::ModelVersion>, ClientError> {
-        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/versions"))).await
+    pub async fn versions(
+        &self,
+        id: &str,
+    ) -> Result<Vec<registry_core::ModelVersion>, ClientError> {
+        self.send_json(self.request(
+            reqwest::Method::GET,
+            &format!("/api/v1/models/{id}/versions"),
+        ))
+        .await
     }
 
-    pub async fn create_version(&self, id: &str, input: &NewModelVersion) -> Result<registry_core::ModelVersion, ClientError> {
-        self.send_json(self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/versions")).json(input)).await
+    pub async fn create_version(
+        &self,
+        id: &str,
+        input: &NewModelVersion,
+    ) -> Result<registry_core::ModelVersion, ClientError> {
+        self.send_json(
+            self.request(
+                reqwest::Method::POST,
+                &format!("/api/v1/models/{id}/versions"),
+            )
+            .json(input),
+        )
+        .await
     }
 
-    pub async fn update_version(&self, model_id: &str, version_id: &str, input: &UpdateModelVersion) -> Result<registry_core::ModelVersion, ClientError> {
-        self.send_json(self.request(reqwest::Method::PATCH, &format!("/api/v1/models/{model_id}/versions/{version_id}")).json(input)).await
+    pub async fn update_version(
+        &self,
+        model_id: &str,
+        version_id: &str,
+        input: &UpdateModelVersion,
+    ) -> Result<registry_core::ModelVersion, ClientError> {
+        self.send_json(
+            self.request(
+                reqwest::Method::PATCH,
+                &format!("/api/v1/models/{model_id}/versions/{version_id}"),
+            )
+            .json(input),
+        )
+        .await
     }
 
     pub async fn files(&self, id: &str) -> Result<Vec<registry_core::ModelFile>, ClientError> {
-        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/files"))).await
+        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/files")))
+            .await
     }
 
-    pub async fn add_file(&self, id: &str, input: &NewModelFile) -> Result<registry_core::ModelFile, ClientError> {
-        self.send_json(self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/files")).json(input)).await
+    pub async fn add_file(
+        &self,
+        id: &str,
+        input: &NewModelFile,
+    ) -> Result<registry_core::ModelFile, ClientError> {
+        self.send_json(
+            self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/files"))
+                .json(input),
+        )
+        .await
     }
 
     pub async fn tags(&self, id: &str) -> Result<Vec<String>, ClientError> {
-        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/tags"))).await
+        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/tags")))
+            .await
     }
 
     pub async fn add_tag(&self, id: &str, tag: &str) -> Result<Vec<String>, ClientError> {
-        self.send_json(self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/tags")).json(&serde_json::json!({"tag":tag}))).await
+        self.send_json(
+            self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/tags"))
+                .json(&serde_json::json!({"tag":tag})),
+        )
+        .await
     }
 
     pub async fn sources(&self, id: &str) -> Result<Vec<registry_core::ModelSource>, ClientError> {
-        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/sources"))).await
+        self.send_json(self.request(
+            reqwest::Method::GET,
+            &format!("/api/v1/models/{id}/sources"),
+        ))
+        .await
     }
 
-    pub async fn add_source(&self, id: &str, input: &NewModelSource) -> Result<registry_core::ModelSource, ClientError> {
-        self.send_json(self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/sources")).json(input)).await
+    pub async fn add_source(
+        &self,
+        id: &str,
+        input: &NewModelSource,
+    ) -> Result<registry_core::ModelSource, ClientError> {
+        self.send_json(
+            self.request(
+                reqwest::Method::POST,
+                &format!("/api/v1/models/{id}/sources"),
+            )
+            .json(input),
+        )
+        .await
     }
 
-    pub async fn add_relationship(&self, id: &str, input: &NewModelRelationship) -> Result<registry_core::ModelRelationship, ClientError> {
-        self.send_json(self.request(reqwest::Method::POST, &format!("/api/v1/models/{id}/relationships")).json(input)).await
+    pub async fn add_relationship(
+        &self,
+        id: &str,
+        input: &NewModelRelationship,
+    ) -> Result<registry_core::ModelRelationship, ClientError> {
+        self.send_json(
+            self.request(
+                reqwest::Method::POST,
+                &format!("/api/v1/models/{id}/relationships"),
+            )
+            .json(input),
+        )
+        .await
     }
 
     pub async fn events(&self, after_id: i64) -> Result<Vec<RegistryEvent>, ClientError> {
         self.send_json(
             self.request(reqwest::Method::GET, "/api/v1/events/snapshot")
                 .query(&[("after_id", after_id)]),
-        ).await
+        )
+        .await
     }
 
     pub fn sse_url(&self, after_id: i64) -> String {
         format!("{}/api/v1/events?after_id={after_id}", self.base_url)
     }
 
-    pub fn base_url(&self) -> &str { &self.base_url }
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
 }
 
 pub fn ensure_core_result<T>(result: Result<T, ClientError>) -> registry_core::Result<T> {

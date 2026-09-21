@@ -1,9 +1,12 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{sse::{Event, KeepAlive, Sse}, IntoResponse, Response},
-    routing::delete,
     Json, Router,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode, header},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
+    routing::delete,
 };
 use futures_util::Stream;
 use registry_core::{
@@ -25,7 +28,11 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(service: RegistryService, token: impl Into<Arc<str>>, started_at: i64) -> Self {
-        Self { service, token: token.into(), started_at }
+        Self {
+            service,
+            token: token.into(),
+            started_at,
+        }
     }
 }
 
@@ -43,18 +50,26 @@ pub struct ApiError {
 
 impl ApiError {
     fn unauthorized() -> Self {
-        Self { status: StatusCode::UNAUTHORIZED, message: "valid bearer authentication is required".into() }
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            message: "valid bearer authentication is required".into(),
+        }
     }
 
     fn from_core(error: RegistryError) -> Self {
         let status = match &error {
             RegistryError::NotFound(_) => StatusCode::NOT_FOUND,
             RegistryError::Validation(_) | RegistryError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            RegistryError::RevisionConflict { .. } | RegistryError::Conflict(_) => StatusCode::CONFLICT,
+            RegistryError::RevisionConflict { .. } | RegistryError::Conflict(_) => {
+                StatusCode::CONFLICT
+            }
             RegistryError::Unauthorized => StatusCode::UNAUTHORIZED,
             RegistryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        Self { status, message: error.to_string() }
+        Self {
+            status,
+            message: error.to_string(),
+        }
     }
 }
 
@@ -63,17 +78,24 @@ impl IntoResponse for ApiError {
         (
             self.status,
             Json(ApiErrorBody {
-                error: if self.status == StatusCode::UNAUTHORIZED { "unauthorized" } else { "request_failed" },
+                error: if self.status == StatusCode::UNAUTHORIZED {
+                    "unauthorized"
+                } else {
+                    "request_failed"
+                },
                 message: self.message,
             }),
-        ).into_response()
+        )
+            .into_response()
     }
 }
 
 type ApiResult<T> = std::result::Result<T, ApiError>;
 
 #[derive(Debug, Deserialize)]
-pub struct TagRequest { pub tag: String }
+pub struct TagRequest {
+    pub tag: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CompatibilityQuery {
@@ -94,7 +116,11 @@ pub struct EventsQuery {
 }
 
 #[derive(Debug, Serialize)]
-struct HealthResponse { status: &'static str, service: &'static str, api_version: &'static str }
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+    api_version: &'static str,
+}
 
 #[derive(Debug, Serialize)]
 struct StatusResponse {
@@ -114,7 +140,8 @@ struct DirectCompatibilityResponse {
 }
 
 fn actor(headers: &HeaderMap) -> String {
-    headers.get("x-raphael-actor")
+    headers
+        .get("x-raphael-actor")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
@@ -126,10 +153,15 @@ fn actor(headers: &HeaderMap) -> String {
 
 fn require_auth(headers: &HeaderMap, token: &str) -> ApiResult<()> {
     let expected = format!("Bearer {token}");
-    let supplied = headers.get(header::AUTHORIZATION)
+    let supplied = headers
+        .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    if supplied != expected { Err(ApiError::unauthorized()) } else { Ok(()) }
+    if supplied != expected {
+        Err(ApiError::unauthorized())
+    } else {
+        Ok(())
+    }
 }
 
 fn core<T>(result: CoreResult<T>) -> ApiResult<T> {
@@ -141,34 +173,82 @@ pub fn router(state: AppState) -> Router {
         .route("/health", axum::routing::get(health))
         .route("/api/v1/status", axum::routing::get(status))
         .route("/api/v1/model-types", axum::routing::get(model_types))
-        .route("/api/v1/models", axum::routing::get(list_models).post(create_model))
+        .route(
+            "/api/v1/models",
+            axum::routing::get(list_models).post(create_model),
+        )
         .route("/api/v1/models/search", axum::routing::get(search_models))
-        .route("/api/v1/models/{id}", axum::routing::get(get_model).patch(update_model).delete(delete_model))
-        .route("/api/v1/models/{id}/versions", axum::routing::get(list_versions).post(create_version))
-        .route("/api/v1/models/{id}/versions/{version_id}", axum::routing::get(get_version).patch(update_version))
-        .route("/api/v1/models/{id}/files", axum::routing::get(list_files).post(add_file))
+        .route(
+            "/api/v1/models/{id}",
+            axum::routing::get(get_model)
+                .patch(update_model)
+                .delete(delete_model),
+        )
+        .route(
+            "/api/v1/models/{id}/versions",
+            axum::routing::get(list_versions).post(create_version),
+        )
+        .route(
+            "/api/v1/models/{id}/versions/{version_id}",
+            axum::routing::get(get_version).patch(update_version),
+        )
+        .route(
+            "/api/v1/models/{id}/files",
+            axum::routing::get(list_files).post(add_file),
+        )
         .route("/api/v1/models/{id}/files/{file_id}", delete(remove_file))
-        .route("/api/v1/models/{id}/tags", axum::routing::get(list_model_tags).post(add_tag))
+        .route(
+            "/api/v1/models/{id}/tags",
+            axum::routing::get(list_model_tags).post(add_tag),
+        )
         .route("/api/v1/models/{id}/tags/{tag}", delete(remove_tag))
         .route("/api/v1/tags", axum::routing::get(list_tags))
-        .route("/api/v1/models/{id}/sources", axum::routing::get(list_sources).post(add_source))
-        .route("/api/v1/models/{id}/assets", axum::routing::get(list_assets).post(add_asset))
-        .route("/api/v1/models/{id}/relationships", axum::routing::get(list_relationships).post(add_relationship))
-        .route("/api/v1/models/{id}/relationships/{relationship_id}", delete(delete_relationship))
-        .route("/api/v1/models/{id}/compatibility", axum::routing::get(model_compatibility))
-        .route("/api/v1/compatibility", axum::routing::get(direct_compatibility))
+        .route(
+            "/api/v1/models/{id}/sources",
+            axum::routing::get(list_sources).post(add_source),
+        )
+        .route(
+            "/api/v1/models/{id}/assets",
+            axum::routing::get(list_assets).post(add_asset),
+        )
+        .route(
+            "/api/v1/models/{id}/relationships",
+            axum::routing::get(list_relationships).post(add_relationship),
+        )
+        .route(
+            "/api/v1/models/{id}/relationships/{relationship_id}",
+            delete(delete_relationship),
+        )
+        .route(
+            "/api/v1/models/{id}/compatibility",
+            axum::routing::get(model_compatibility),
+        )
+        .route(
+            "/api/v1/compatibility",
+            axum::routing::get(direct_compatibility),
+        )
         .route("/api/v1/checkpoints", axum::routing::get(list_checkpoints))
         .route("/api/v1/loras", axum::routing::get(list_loras))
         .route("/api/v1/events", axum::routing::get(events))
-        .route("/api/v1/events/snapshot", axum::routing::get(events_snapshot))
+        .route(
+            "/api/v1/events/snapshot",
+            axum::routing::get(events_snapshot),
+        )
         .with_state(state)
 }
 
 async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse { status: "ok", service: "raphael-model-registry", api_version: "v1" })
+    Json(HealthResponse {
+        status: "ok",
+        service: "raphael-model-registry",
+        api_version: "v1",
+    })
 }
 
-async fn status(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<StatusResponse>> {
+async fn status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<StatusResponse>> {
     require_auth(&headers, &state.token)?;
     let report = core(state.service.integrity_report().await)?;
     Ok(Json(StatusResponse {
@@ -180,166 +260,383 @@ async fn status(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<
     }))
 }
 
-async fn model_types(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Vec<String>>> {
+async fn model_types(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Vec<String>>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(ModelType::ALL.iter().map(ToString::to_string).collect()))
+    Ok(Json(
+        ModelType::ALL.iter().map(ToString::to_string).collect(),
+    ))
 }
 
-async fn list_models(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<ModelSearch>) -> ApiResult<Json<registry_core::SearchResult>> {
+async fn list_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ModelSearch>,
+) -> ApiResult<Json<registry_core::SearchResult>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.search_models(query).await)?))
 }
 
-async fn search_models(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<ModelSearch>) -> ApiResult<Json<registry_core::SearchResult>> {
+async fn search_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ModelSearch>,
+) -> ApiResult<Json<registry_core::SearchResult>> {
     list_models(State(state), headers, Query(query)).await
 }
 
-async fn create_model(State(state): State<AppState>, headers: HeaderMap, Json(input): Json<NewModel>) -> ApiResult<(StatusCode, Json<registry_core::Model>)> {
+async fn create_model(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<NewModel>,
+) -> ApiResult<(StatusCode, Json<registry_core::Model>)> {
     require_auth(&headers, &state.token)?;
-    Ok((StatusCode::CREATED, Json(core(state.service.create_model(&actor(&headers), input).await)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(core(
+            state.service.create_model(&actor(&headers), input).await,
+        )?),
+    ))
 }
 
-async fn get_model(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<registry_core::Model>> {
+async fn get_model(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<registry_core::Model>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.get_model(&id).await)?))
 }
 
-async fn update_model(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<UpdateModel>) -> ApiResult<Json<registry_core::Model>> {
+async fn update_model(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<UpdateModel>,
+) -> ApiResult<Json<registry_core::Model>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(core(state.service.update_model(&actor(&headers), &id, input).await)?))
+    Ok(Json(core(
+        state
+            .service
+            .update_model(&actor(&headers), &id, input)
+            .await,
+    )?))
 }
 
-async fn delete_model(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<StatusCode> {
+async fn delete_model(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
     require_auth(&headers, &state.token)?;
     core(state.service.delete_model(&actor(&headers), &id).await)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn create_version(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<NewModelVersion>) -> ApiResult<(StatusCode, Json<registry_core::ModelVersion>)> {
+async fn create_version(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<NewModelVersion>,
+) -> ApiResult<(StatusCode, Json<registry_core::ModelVersion>)> {
     require_auth(&headers, &state.token)?;
-    Ok((StatusCode::CREATED, Json(core(state.service.create_version(&actor(&headers), &id, input).await)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(core(
+            state
+                .service
+                .create_version(&actor(&headers), &id, input)
+                .await,
+        )?),
+    ))
 }
 
-async fn list_versions(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Vec<registry_core::ModelVersion>>> {
+async fn list_versions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<registry_core::ModelVersion>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_versions(&id).await)?))
 }
 
-async fn get_version(State(state): State<AppState>, headers: HeaderMap, Path((id, version_id)): Path<(String, String)>) -> ApiResult<Json<registry_core::ModelVersion>> {
+async fn get_version(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, version_id)): Path<(String, String)>,
+) -> ApiResult<Json<registry_core::ModelVersion>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(core(state.service.get_version(&id, &version_id).await)?))
+    Ok(Json(core(
+        state.service.get_version(&id, &version_id).await,
+    )?))
 }
 
-async fn update_version(State(state): State<AppState>, headers: HeaderMap, Path((id, version_id)): Path<(String, String)>, Json(input): Json<UpdateModelVersion>) -> ApiResult<Json<registry_core::ModelVersion>> {
+async fn update_version(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, version_id)): Path<(String, String)>,
+    Json(input): Json<UpdateModelVersion>,
+) -> ApiResult<Json<registry_core::ModelVersion>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(core(state.service.update_version(&actor(&headers), &id, &version_id, input).await)?))
+    Ok(Json(core(
+        state
+            .service
+            .update_version(&actor(&headers), &id, &version_id, input)
+            .await,
+    )?))
 }
 
-async fn list_files(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Vec<registry_core::ModelFile>>> {
+async fn list_files(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<registry_core::ModelFile>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_files(&id).await)?))
 }
 
-async fn add_file(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<NewModelFile>) -> ApiResult<(StatusCode, Json<registry_core::ModelFile>)> {
+async fn add_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<NewModelFile>,
+) -> ApiResult<(StatusCode, Json<registry_core::ModelFile>)> {
     require_auth(&headers, &state.token)?;
-    Ok((StatusCode::CREATED, Json(core(state.service.add_file(&actor(&headers), &id, input).await)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(core(
+            state.service.add_file(&actor(&headers), &id, input).await,
+        )?),
+    ))
 }
 
-async fn remove_file(State(state): State<AppState>, headers: HeaderMap, Path((id, file_id)): Path<(String, String)>) -> ApiResult<StatusCode> {
+async fn remove_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, file_id)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
     require_auth(&headers, &state.token)?;
-    core(state.service.remove_file(&actor(&headers), &id, &file_id).await)?;
+    core(
+        state
+            .service
+            .remove_file(&actor(&headers), &id, &file_id)
+            .await,
+    )?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_tags(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Vec<registry_core::Tag>>> {
+async fn list_tags(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Vec<registry_core::Tag>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_tags().await)?))
 }
 
-async fn list_model_tags(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Vec<String>>> {
+async fn list_model_tags(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<String>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_model_tags(&id).await)?))
 }
 
-async fn add_tag(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<TagRequest>) -> ApiResult<Json<Vec<String>>> {
+async fn add_tag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<TagRequest>,
+) -> ApiResult<Json<Vec<String>>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(core(state.service.add_tag(&actor(&headers), &id, &input.tag).await)?))
+    Ok(Json(core(
+        state
+            .service
+            .add_tag(&actor(&headers), &id, &input.tag)
+            .await,
+    )?))
 }
 
-async fn remove_tag(State(state): State<AppState>, headers: HeaderMap, Path((id, tag)): Path<(String, String)>) -> ApiResult<Json<Vec<String>>> {
+async fn remove_tag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, tag)): Path<(String, String)>,
+) -> ApiResult<Json<Vec<String>>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(core(state.service.remove_tag(&actor(&headers), &id, &tag).await)?))
+    Ok(Json(core(
+        state.service.remove_tag(&actor(&headers), &id, &tag).await,
+    )?))
 }
 
-async fn list_sources(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Vec<registry_core::ModelSource>>> {
+async fn list_sources(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<registry_core::ModelSource>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_sources(&id).await)?))
 }
 
-async fn add_source(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<NewModelSource>) -> ApiResult<(StatusCode, Json<registry_core::ModelSource>)> {
+async fn add_source(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<NewModelSource>,
+) -> ApiResult<(StatusCode, Json<registry_core::ModelSource>)> {
     require_auth(&headers, &state.token)?;
-    Ok((StatusCode::CREATED, Json(core(state.service.add_source(&actor(&headers), &id, input).await)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(core(
+            state.service.add_source(&actor(&headers), &id, input).await,
+        )?),
+    ))
 }
 
-async fn list_assets(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Vec<registry_core::ModelAsset>>> {
+async fn list_assets(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<registry_core::ModelAsset>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_assets(&id).await)?))
 }
 
-async fn add_asset(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<NewModelAsset>) -> ApiResult<(StatusCode, Json<registry_core::ModelAsset>)> {
+async fn add_asset(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<NewModelAsset>,
+) -> ApiResult<(StatusCode, Json<registry_core::ModelAsset>)> {
     require_auth(&headers, &state.token)?;
-    Ok((StatusCode::CREATED, Json(core(state.service.add_asset(&actor(&headers), &id, input).await)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(core(
+            state.service.add_asset(&actor(&headers), &id, input).await,
+        )?),
+    ))
 }
 
-async fn list_relationships(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Vec<registry_core::ModelRelationship>>> {
+async fn list_relationships(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<registry_core::ModelRelationship>>> {
     require_auth(&headers, &state.token)?;
     Ok(Json(core(state.service.list_relationships(&id).await)?))
 }
 
-async fn add_relationship(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(input): Json<NewModelRelationship>) -> ApiResult<(StatusCode, Json<registry_core::ModelRelationship>)> {
+async fn add_relationship(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<NewModelRelationship>,
+) -> ApiResult<(StatusCode, Json<registry_core::ModelRelationship>)> {
     require_auth(&headers, &state.token)?;
-    Ok((StatusCode::CREATED, Json(core(state.service.add_relationship(&actor(&headers), &id, input).await)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(core(
+            state
+                .service
+                .add_relationship(&actor(&headers), &id, input)
+                .await,
+        )?),
+    ))
 }
 
-async fn delete_relationship(State(state): State<AppState>, headers: HeaderMap, Path((id, relationship_id)): Path<(String, String)>) -> ApiResult<StatusCode> {
+async fn delete_relationship(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, relationship_id)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
     require_auth(&headers, &state.token)?;
-    core(state.service.delete_relationship(&actor(&headers), &id, &relationship_id).await)?;
+    core(
+        state
+            .service
+            .delete_relationship(&actor(&headers), &id, &relationship_id)
+            .await,
+    )?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_checkpoints(State(state): State<AppState>, headers: HeaderMap, Query(mut query): Query<ModelSearch>) -> ApiResult<Json<registry_core::SearchResult>> {
+async fn list_checkpoints(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(mut query): Query<ModelSearch>,
+) -> ApiResult<Json<registry_core::SearchResult>> {
     query.model_type = Some(ModelType::Checkpoint);
     list_models(State(state), headers, Query(query)).await
 }
 
-async fn list_loras(State(state): State<AppState>, headers: HeaderMap, Query(mut query): Query<ModelSearch>) -> ApiResult<Json<registry_core::SearchResult>> {
+async fn list_loras(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(mut query): Query<ModelSearch>,
+) -> ApiResult<Json<registry_core::SearchResult>> {
     query.model_type = Some(ModelType::Lora);
     list_models(State(state), headers, Query(query)).await
 }
 
-async fn model_compatibility(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Query(query): Query<CompatibilityQuery>) -> ApiResult<Json<CompatibilityResult>> {
+async fn model_compatibility(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<CompatibilityQuery>,
+) -> ApiResult<Json<CompatibilityResult>> {
     require_auth(&headers, &state.token)?;
     let source = core(state.service.get_model(&id).await)?;
     let requested_type = query.model_type.unwrap_or(ModelType::Lora);
-    let candidates = core(state.service.search_models(ModelSearch { model_type: Some(requested_type.clone()), limit: 200, ..Default::default() }).await)?;
+    let candidates = core(
+        state
+            .service
+            .search_models(ModelSearch {
+                model_type: Some(requested_type.clone()),
+                limit: 200,
+                ..Default::default()
+            })
+            .await,
+    )?;
     let relationships = core(state.service.list_relationships(&id).await)?;
-    let explicit: Vec<String> = relationships.iter()
+    let explicit: Vec<String> = relationships
+        .iter()
         .filter(|r| r.relationship_type == registry_core::RelationshipType::CompatibleWith)
-        .map(|r| if r.source_model_id == id { r.target_model_id.clone() } else { r.source_model_id.clone() })
+        .map(|r| {
+            if r.source_model_id == id {
+                r.target_model_id.clone()
+            } else {
+                r.source_model_id.clone()
+            }
+        })
         .collect();
-    let candidates = candidates.items.into_iter().filter(|candidate| {
-        explicit.iter().any(|target| target == &candidate.id)
-            || (source.base_model.is_some() && source.base_model == candidate.base_model)
-    }).collect();
-    Ok(Json(CompatibilityResult { model_id: id, requested_type, candidates }))
+    let candidates = candidates
+        .items
+        .into_iter()
+        .filter(|candidate| {
+            explicit.iter().any(|target| target == &candidate.id)
+                || (source.base_model.is_some() && source.base_model == candidate.base_model)
+        })
+        .collect();
+    Ok(Json(CompatibilityResult {
+        model_id: id,
+        requested_type,
+        candidates,
+    }))
 }
 
-async fn direct_compatibility(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<DirectCompatibilityQuery>) -> ApiResult<Json<DirectCompatibilityResponse>> {
+async fn direct_compatibility(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DirectCompatibilityQuery>,
+) -> ApiResult<Json<DirectCompatibilityResponse>> {
     require_auth(&headers, &state.token)?;
     let checkpoint = core(state.service.get_model(&query.checkpoint).await)?;
     let lora = core(state.service.get_model(&query.lora).await)?;
     if checkpoint.model_type != ModelType::Checkpoint || lora.model_type != ModelType::Lora {
-        return Err(ApiError { status: StatusCode::BAD_REQUEST, message: "checkpoint must be checkpoint and lora must be lora".into() });
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "checkpoint must be checkpoint and lora must be lora".into(),
+        });
     }
     let same_base = checkpoint.base_model.is_some() && checkpoint.base_model == lora.base_model;
     let relationships = core(state.service.list_relationships(&checkpoint.id).await)?;
@@ -352,16 +649,32 @@ async fn direct_compatibility(State(state): State<AppState>, headers: HeaderMap,
         checkpoint: query.checkpoint,
         lora: query.lora,
         compatible: same_base || explicit,
-        reason: if explicit { "explicit_relationship" } else if same_base { "matching_base_model" } else { "no_deterministic_match" },
+        reason: if explicit {
+            "explicit_relationship"
+        } else if same_base {
+            "matching_base_model"
+        } else {
+            "no_deterministic_match"
+        },
     }))
 }
 
-async fn events_snapshot(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<EventsQuery>) -> ApiResult<Json<Vec<RegistryEvent>>> {
+async fn events_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<EventsQuery>,
+) -> ApiResult<Json<Vec<RegistryEvent>>> {
     require_auth(&headers, &state.token)?;
-    Ok(Json(core(state.service.list_events(query.after_id.max(0), 500).await)?))
+    Ok(Json(core(
+        state.service.list_events(query.after_id.max(0), 500).await,
+    )?))
 }
 
-async fn events(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<EventsQuery>) -> ApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
+async fn events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<EventsQuery>,
+) -> ApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     require_auth(&headers, &state.token)?;
     let service = state.service.clone();
     let mut cursor = query.after_id.max(0);
