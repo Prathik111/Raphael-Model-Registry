@@ -737,10 +737,10 @@ impl RegistryService {
         input: UpdateModelVersion,
     ) -> Result<ModelVersion> {
         if let Some(source) = &input.source {
-            if let Some(value) = source.as_ref()
-                && value.trim().is_empty()
-            {
-                return Err(RegistryError::Validation("source must not be empty".into()));
+            if let Some(value) = source.as_ref() {
+                if value.trim().is_empty() {
+                    return Err(RegistryError::Validation("source must not be empty".into()));
+                }
             }
         }
         if let Some(prompts) = &input.activation_prompts {
