@@ -61,7 +61,7 @@ jobs:
           node-version: 22
 
       - name: Lint OpenAPI
-        run: npx --yes @redocly/cli@1.34.0 lint schema/openapi.yaml
+        run: npx --yes @redocly/cli@2.53.3 lint schema/openapi.yaml
 
       - name: Validate JSON schemas
         run: |
