@@ -740,9 +740,7 @@ impl RegistryService {
             if let Some(value) = source.as_ref()
                 && value.trim().is_empty()
             {
-                return Err(RegistryError::Validation(
-                    "source must not be empty".into(),
-                ));
+                return Err(RegistryError::Validation("source must not be empty".into()));
             }
         }
         if let Some(prompts) = &input.activation_prompts {
