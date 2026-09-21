@@ -768,7 +768,7 @@ impl RegistryService {
         &self,
         actor: &str,
         model_id: &str,
-        input: NewModelFile,
+        mut input: NewModelFile,
     ) -> Result<ModelFile> {
         if input.path.trim().is_empty() || input.filename.trim().is_empty() {
             return Err(RegistryError::Validation(
