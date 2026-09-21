@@ -1023,7 +1023,9 @@ impl EventRepository for SqliteStore {
              UNION ALL
              SELECT id FROM model_relationships WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
              UNION ALL
-             SELECT id FROM registry_events WHERE json_valid(payload)=0 OR json_type(payload) <> 'object'",
+             SELECT CAST(id AS TEXT) AS id
+             FROM registry_events
+             WHERE json_valid(payload)=0 OR json_type(payload) <> 'object'",
         )
         .fetch_all(&self.pool)
         .await
