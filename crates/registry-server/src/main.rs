@@ -89,7 +89,9 @@ fn config(cli: &Cli) -> RegistryConfig {
         if let Some(origin) = &args.cors_origin {
             config.cors_origin = Some(origin.clone());
         }
-        config.allow_insecure_lan = args.allow_insecure_lan;
+        if args.allow_insecure_lan {
+            config.allow_insecure_lan = true;
+        }
     }
     config
 }
