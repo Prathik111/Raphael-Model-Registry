@@ -43,7 +43,7 @@ jobs:
       - name: Dependency audit
         run: |
           cargo install cargo-audit --locked
-          cargo audit --locked
+          cargo audit
 
       - name: Release build
         run: cargo build --workspace --release
