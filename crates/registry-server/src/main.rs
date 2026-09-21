@@ -53,6 +53,9 @@ struct ServerArgs {
     auth_token: Option<String>,
     #[arg(long)]
     cors_origin: Option<String>,
+    /// Explicitly allow plaintext HTTP when binding beyond localhost.
+    #[arg(long, env = "RAPHAEL_REGISTRY_ALLOW_INSECURE_LAN")]
+    allow_insecure_lan: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -86,6 +89,7 @@ fn config(cli: &Cli) -> RegistryConfig {
         if let Some(origin) = &args.cors_origin {
             config.cors_origin = Some(origin.clone());
         }
+        config.allow_insecure_lan = args.allow_insecure_lan;
     }
     config
 }
