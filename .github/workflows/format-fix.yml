@@ -1,0 +1,37 @@
+name: Verification format fixer
+
+on:
+  push:
+    branches:
+      - "ci/verification-*"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Format
+        run: cargo fmt --all
+
+      - name: Commit formatted sources
+        run: |
+          if git diff --quiet; then
+            echo "rustfmt made no changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: rustfmt sources [skip ci]"
+          git push origin HEAD:${GITHUB_REF_NAME}
