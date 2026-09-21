@@ -681,7 +681,7 @@ impl RegistryService {
     pub async fn create_model(&self, actor: &str, mut input: NewModel) -> Result<Model> {
         input.name = validate_name(&input.name, "name")?;
         validate_extensions(&input.extensions)?;
-        Ok(self.repo.create_model(actor, input).await?)
+        self.repo.create_model(actor, input).await
     }
 
     pub async fn get_model(&self, id: &str) -> Result<Model> {
