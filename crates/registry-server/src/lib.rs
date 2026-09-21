@@ -1286,9 +1286,21 @@ mod tests {
         let client = reqwest::Client::new();
         let base = format!("http://{}", address);
 
-        assert!(client.get(format!("{base}/health")).send().await.unwrap().status().is_success());
+        assert!(
+            client
+                .get(format!("{base}/health"))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .is_success()
+        );
 
-        let unauthorized = client.get(format!("{base}/api/v1/models")).send().await.unwrap();
+        let unauthorized = client
+            .get(format!("{base}/api/v1/models"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         let checkpoint_response = client
@@ -1408,7 +1420,10 @@ mod tests {
                     "metadata": {}
                 })),
             client
-                .post(format!("{base}/api/v1/models/{}/relationships", checkpoint.id))
+                .post(format!(
+                    "{base}/api/v1/models/{}/relationships",
+                    checkpoint.id
+                ))
                 .bearer_auth(&token)
                 .json(&serde_json::json!({
                     "target_model_id": "model_http_lora",
@@ -1441,10 +1456,26 @@ mod tests {
             .unwrap();
         assert_eq!(events.status(), reqwest::StatusCode::OK);
         let events_body: Vec<registry_core::RegistryEvent> = events.json().await.unwrap();
-        assert!(events_body.iter().any(|event| event.event_type == "model.created"));
-        assert!(events_body.iter().any(|event| event.event_type == "model.updated"));
-        assert!(events_body.iter().any(|event| event.event_type == "model.file.attached"));
-        assert!(events_body.iter().any(|event| event.event_type == "model.relationship.created"));
+        assert!(
+            events_body
+                .iter()
+                .any(|event| event.event_type == "model.created")
+        );
+        assert!(
+            events_body
+                .iter()
+                .any(|event| event.event_type == "model.updated")
+        );
+        assert!(
+            events_body
+                .iter()
+                .any(|event| event.event_type == "model.file.attached")
+        );
+        assert!(
+            events_body
+                .iter()
+                .any(|event| event.event_type == "model.relationship.created")
+        );
 
         let delete_response = client
             .delete(format!("{base}/api/v1/models/{}", checkpoint.id))
