@@ -823,7 +823,7 @@ impl RegistryService {
         &self,
         actor: &str,
         model_id: &str,
-        input: NewModelSource,
+        mut input: NewModelSource,
     ) -> Result<ModelSource> {
         input.provider = validate_name(&input.provider, "provider")?;
         validate_extensions(&input.metadata)?;
