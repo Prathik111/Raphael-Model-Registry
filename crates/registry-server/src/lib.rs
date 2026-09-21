@@ -775,18 +775,36 @@ impl SourceRepository for SqliteStore {
             .bind(input.external_model_id.clone()).bind(input.external_model_id.clone())
             .bind(input.external_version_id.clone()).bind(input.external_version_id.clone())
             .fetch_optional(&mut *tx).await.map_err(db_error)?;
-        let id = if let Some(row) = existing {
-            row.get::<String, _>("id")
+        let (id, event_type) = if let Some(row) = existing {
+            let id = row.get::<String, _>("id");
+            sqlx::query("UPDATE model_sources SET url=?, imported_at=?, metadata=? WHERE id=?")
+                .bind(input.url)
+                .bind(now_unix())
+                .bind(json_string(&input.metadata))
+                .bind(&id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            (id, "model.source.updated")
         } else {
             let id = new_id("source");
             sqlx::query("INSERT INTO model_sources(id,model_id,provider,external_model_id,external_version_id,url,imported_at,metadata) VALUES(?,?,?,?,?,?,?,?)")
-                .bind(&id).bind(model_id).bind(input.provider.trim()).bind(input.external_model_id).bind(input.external_version_id).bind(input.url).bind(now_unix()).bind(json_string(&input.metadata))
-                .execute(&mut *tx).await.map_err(db_error)?;
-            id
+                .bind(&id)
+                .bind(model_id)
+                .bind(input.provider.trim())
+                .bind(input.external_model_id)
+                .bind(input.external_version_id)
+                .bind(input.url)
+                .bind(now_unix())
+                .bind(json_string(&input.metadata))
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            (id, "model.source.created")
         };
         insert_event(
             &mut tx,
-            "model.source.updated",
+            event_type,
             actor,
             Some(model_id),
             json!({"id":id}),
