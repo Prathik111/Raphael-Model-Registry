@@ -100,7 +100,9 @@ impl std::str::FromStr for ModelType {
             "clip_vision" | "clip-vision" => Ok(Self::ClipVision),
             "ip_adapter" | "ip-adapter" | "ipadapter" => Ok(Self::IpAdapter),
             "other" => Ok(Self::Other),
-            other => Err(RegistryError::Validation(format!("unsupported model_type '{other}'"))),
+            other => Err(RegistryError::Validation(format!(
+                "unsupported model_type '{other}'"
+            ))),
         }
     }
 }
@@ -219,7 +221,9 @@ impl std::str::FromStr for FileStatus {
             "missing" => Ok(Self::Missing),
             "invalid" => Ok(Self::Invalid),
             "offline" => Ok(Self::Offline),
-            other => Err(RegistryError::Validation(format!("unsupported file status '{other}'"))),
+            other => Err(RegistryError::Validation(format!(
+                "unsupported file status '{other}'"
+            ))),
         }
     }
 }
@@ -283,7 +287,9 @@ impl std::str::FromStr for AssetKind {
             "cover" => Ok(Self::Cover),
             "gallery" => Ok(Self::Gallery),
             "preview" => Ok(Self::Preview),
-            other => Err(RegistryError::Validation(format!("unsupported asset kind '{other}'"))),
+            other => Err(RegistryError::Validation(format!(
+                "unsupported asset kind '{other}'"
+            ))),
         }
     }
 }
@@ -372,7 +378,9 @@ impl std::str::FromStr for RelationshipType {
             "recommended_with" => Ok(Self::RecommendedWith),
             "requires" => Ok(Self::Requires),
             "related_to" => Ok(Self::RelatedTo),
-            other => Err(RegistryError::Validation(format!("unsupported relationship type '{other}'"))),
+            other => Err(RegistryError::Validation(format!(
+                "unsupported relationship type '{other}'"
+            ))),
         }
     }
 }
@@ -416,12 +424,30 @@ impl ModelSearch {
     pub fn normalized(mut self) -> Self {
         self.limit = self.limit.clamp(1, 200);
         self.offset = self.offset.max(0);
-        self.q = self.q.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-        self.tag = self.tag.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-        self.creator = self.creator.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-        self.base_model = self.base_model.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-        self.source = self.source.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-        self.hash = self.hash.map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty());
+        self.q = self
+            .q
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        self.tag = self
+            .tag
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        self.creator = self
+            .creator
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        self.base_model = self
+            .base_model
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        self.source = self
+            .source
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        self.hash = self
+            .hash
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| !v.is_empty());
         self
     }
 }
@@ -476,10 +502,14 @@ pub struct IntegrityReport {
 pub fn validate_name(value: &str, field: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(RegistryError::Validation(format!("{field} must not be empty")));
+        return Err(RegistryError::Validation(format!(
+            "{field} must not be empty"
+        )));
     }
     if trimmed.chars().count() > 512 {
-        return Err(RegistryError::Validation(format!("{field} exceeds 512 characters")));
+        return Err(RegistryError::Validation(format!(
+            "{field} exceeds 512 characters"
+        )));
     }
     Ok(trimmed.to_string())
 }
@@ -488,7 +518,9 @@ pub fn validate_sha256(value: &Option<String>) -> Result<()> {
     if let Some(hash) = value {
         let normalized = hash.trim();
         if normalized.len() != 64 || !normalized.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(RegistryError::Validation("sha256 must be exactly 64 hexadecimal characters".to_string()));
+            return Err(RegistryError::Validation(
+                "sha256 must be exactly 64 hexadecimal characters".to_string(),
+            ));
         }
     }
     Ok(())
@@ -496,7 +528,9 @@ pub fn validate_sha256(value: &Option<String>) -> Result<()> {
 
 pub fn validate_extensions(value: &Value) -> Result<()> {
     if !value.is_object() {
-        return Err(RegistryError::Validation("extensions must be a JSON object".to_string()));
+        return Err(RegistryError::Validation(
+            "extensions must be a JSON object".to_string(),
+        ));
     }
     Ok(())
 }
@@ -504,15 +538,20 @@ pub fn validate_extensions(value: &Value) -> Result<()> {
 fn validate_version_input(input: &NewModelVersion) -> Result<()> {
     if let Some(source) = &input.source {
         if source.trim().is_empty() {
-            return Err(RegistryError::Validation("source must not be empty".to_string()));
+            return Err(RegistryError::Validation(
+                "source must not be empty".to_string(),
+            ));
         }
     }
     for prompt in &input.activation_prompts {
         if prompt.chars().count() > 8_192 {
-            return Err(RegistryError::Validation("activation prompt exceeds 8192 characters".to_string()));
+            return Err(RegistryError::Validation(
+                "activation prompt exceeds 8192 characters".to_string(),
+            ));
         }
     }
-    validate_extensions(&input.metadata).map_err(|e| RegistryError::Validation(format!("metadata: {e}")))?;
+    validate_extensions(&input.metadata)
+        .map_err(|e| RegistryError::Validation(format!("metadata: {e}")))?;
     Ok(())
 }
 
@@ -527,16 +566,28 @@ pub trait ModelRepository: Send + Sync {
 
 #[async_trait]
 pub trait ModelVersionRepository: Send + Sync {
-    async fn create_version(&self, actor: &str, model_id: &str, input: NewModelVersion) -> Result<ModelVersion>;
+    async fn create_version(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelVersion,
+    ) -> Result<ModelVersion>;
     async fn get_version(&self, model_id: &str, version_id: &str) -> Result<ModelVersion>;
     async fn list_versions(&self, model_id: &str) -> Result<Vec<ModelVersion>>;
-    async fn update_version(&self, actor: &str, model_id: &str, version_id: &str, input: UpdateModelVersion) -> Result<ModelVersion>;
+    async fn update_version(
+        &self,
+        actor: &str,
+        model_id: &str,
+        version_id: &str,
+        input: UpdateModelVersion,
+    ) -> Result<ModelVersion>;
 }
 
 #[async_trait]
 pub trait ModelFileRepository: Send + Sync {
     async fn list_files(&self, model_id: &str) -> Result<Vec<ModelFile>>;
-    async fn add_file(&self, actor: &str, model_id: &str, input: NewModelFile) -> Result<ModelFile>;
+    async fn add_file(&self, actor: &str, model_id: &str, input: NewModelFile)
+    -> Result<ModelFile>;
     async fn remove_file(&self, actor: &str, model_id: &str, file_id: &str) -> Result<()>;
 }
 
@@ -551,20 +602,40 @@ pub trait TagRepository: Send + Sync {
 #[async_trait]
 pub trait SourceRepository: Send + Sync {
     async fn list_sources(&self, model_id: &str) -> Result<Vec<ModelSource>>;
-    async fn add_source(&self, actor: &str, model_id: &str, input: NewModelSource) -> Result<ModelSource>;
+    async fn add_source(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelSource,
+    ) -> Result<ModelSource>;
 }
 
 #[async_trait]
 pub trait AssetRepository: Send + Sync {
     async fn list_assets(&self, model_id: &str) -> Result<Vec<ModelAsset>>;
-    async fn add_asset(&self, actor: &str, model_id: &str, input: NewModelAsset) -> Result<ModelAsset>;
+    async fn add_asset(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelAsset,
+    ) -> Result<ModelAsset>;
 }
 
 #[async_trait]
 pub trait RelationshipRepository: Send + Sync {
     async fn list_relationships(&self, model_id: &str) -> Result<Vec<ModelRelationship>>;
-    async fn add_relationship(&self, actor: &str, model_id: &str, input: NewModelRelationship) -> Result<ModelRelationship>;
-    async fn delete_relationship(&self, actor: &str, model_id: &str, relationship_id: &str) -> Result<()>;
+    async fn add_relationship(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelRelationship,
+    ) -> Result<ModelRelationship>;
+    async fn delete_relationship(
+        &self,
+        actor: &str,
+        model_id: &str,
+        relationship_id: &str,
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -610,14 +681,19 @@ impl RegistryService {
     pub async fn create_model(&self, actor: &str, mut input: NewModel) -> Result<Model> {
         input.name = validate_name(&input.name, "name")?;
         validate_extensions(&input.extensions)?;
-        Ok(self.repo.create_model(actor, input).await?)
+        self.repo.create_model(actor, input).await
     }
 
     pub async fn get_model(&self, id: &str) -> Result<Model> {
         self.repo.get_model(id).await
     }
 
-    pub async fn update_model(&self, actor: &str, id: &str, mut input: UpdateModel) -> Result<Model> {
+    pub async fn update_model(
+        &self,
+        actor: &str,
+        id: &str,
+        mut input: UpdateModel,
+    ) -> Result<Model> {
         if let Some(name) = &input.name {
             input.name = Some(validate_name(name, "name")?);
         }
@@ -635,7 +711,12 @@ impl RegistryService {
         self.repo.search_models(query.normalized()).await
     }
 
-    pub async fn create_version(&self, actor: &str, model_id: &str, input: NewModelVersion) -> Result<ModelVersion> {
+    pub async fn create_version(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelVersion,
+    ) -> Result<ModelVersion> {
         validate_version_input(&input)?;
         self.repo.create_version(actor, model_id, input).await
     }
@@ -648,23 +729,40 @@ impl RegistryService {
         self.repo.list_versions(model_id).await
     }
 
-    pub async fn update_version(&self, actor: &str, model_id: &str, version_id: &str, input: UpdateModelVersion) -> Result<ModelVersion> {
+    pub async fn update_version(
+        &self,
+        actor: &str,
+        model_id: &str,
+        version_id: &str,
+        input: UpdateModelVersion,
+    ) -> Result<ModelVersion> {
         if let Some(metadata) = &input.metadata {
             validate_extensions(metadata)?;
         }
-        self.repo.update_version(actor, model_id, version_id, input).await
+        self.repo
+            .update_version(actor, model_id, version_id, input)
+            .await
     }
 
     pub async fn list_files(&self, model_id: &str) -> Result<Vec<ModelFile>> {
         self.repo.list_files(model_id).await
     }
 
-    pub async fn add_file(&self, actor: &str, model_id: &str, input: NewModelFile) -> Result<ModelFile> {
+    pub async fn add_file(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelFile,
+    ) -> Result<ModelFile> {
         if input.path.trim().is_empty() || input.filename.trim().is_empty() {
-            return Err(RegistryError::Validation("file path and filename are required".into()));
+            return Err(RegistryError::Validation(
+                "file path and filename are required".into(),
+            ));
         }
         if input.size_bytes < 0 {
-            return Err(RegistryError::Validation("size_bytes must be non-negative".into()));
+            return Err(RegistryError::Validation(
+                "size_bytes must be non-negative".into(),
+            ));
         }
         validate_sha256(&input.sha256)?;
         self.repo.add_file(actor, model_id, input).await
@@ -685,7 +783,9 @@ impl RegistryService {
     pub async fn add_tag(&self, actor: &str, model_id: &str, tag: &str) -> Result<Vec<String>> {
         let normalized = tag.trim().to_ascii_lowercase();
         if normalized.is_empty() || normalized.len() > 128 {
-            return Err(RegistryError::Validation("tag must be 1..128 characters".into()));
+            return Err(RegistryError::Validation(
+                "tag must be 1..128 characters".into(),
+            ));
         }
         self.repo.add_tag(actor, model_id, &normalized).await
     }
@@ -699,7 +799,12 @@ impl RegistryService {
         self.repo.list_sources(model_id).await
     }
 
-    pub async fn add_source(&self, actor: &str, model_id: &str, input: NewModelSource) -> Result<ModelSource> {
+    pub async fn add_source(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelSource,
+    ) -> Result<ModelSource> {
         if input.provider.trim().is_empty() {
             return Err(RegistryError::Validation("provider is required".into()));
         }
@@ -710,7 +815,12 @@ impl RegistryService {
         self.repo.list_assets(model_id).await
     }
 
-    pub async fn add_asset(&self, actor: &str, model_id: &str, input: NewModelAsset) -> Result<ModelAsset> {
+    pub async fn add_asset(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelAsset,
+    ) -> Result<ModelAsset> {
         if input.path.trim().is_empty() {
             return Err(RegistryError::Validation("asset path is required".into()));
         }
@@ -722,16 +832,30 @@ impl RegistryService {
         self.repo.list_relationships(model_id).await
     }
 
-    pub async fn add_relationship(&self, actor: &str, model_id: &str, input: NewModelRelationship) -> Result<ModelRelationship> {
+    pub async fn add_relationship(
+        &self,
+        actor: &str,
+        model_id: &str,
+        input: NewModelRelationship,
+    ) -> Result<ModelRelationship> {
         if model_id == input.target_model_id {
-            return Err(RegistryError::Validation("a model cannot relate to itself".into()));
+            return Err(RegistryError::Validation(
+                "a model cannot relate to itself".into(),
+            ));
         }
         validate_extensions(&input.metadata)?;
         self.repo.add_relationship(actor, model_id, input).await
     }
 
-    pub async fn delete_relationship(&self, actor: &str, model_id: &str, relationship_id: &str) -> Result<()> {
-        self.repo.delete_relationship(actor, model_id, relationship_id).await
+    pub async fn delete_relationship(
+        &self,
+        actor: &str,
+        model_id: &str,
+        relationship_id: &str,
+    ) -> Result<()> {
+        self.repo
+            .delete_relationship(actor, model_id, relationship_id)
+            .await
     }
 
     pub async fn integrity_report(&self) -> Result<IntegrityReport> {
@@ -739,7 +863,9 @@ impl RegistryService {
     }
 
     pub async fn list_events(&self, after_id: i64, limit: i64) -> Result<Vec<RegistryEvent>> {
-        self.repo.list_events(after_id.max(0), limit.clamp(1, 500)).await
+        self.repo
+            .list_events(after_id.max(0), limit.clamp(1, 500))
+            .await
     }
 }
 
@@ -761,7 +887,10 @@ mod tests {
 
     #[test]
     fn model_type_aliases_are_stable() {
-        assert_eq!("checkpoint".parse::<ModelType>().unwrap(), ModelType::Checkpoint);
+        assert_eq!(
+            "checkpoint".parse::<ModelType>().unwrap(),
+            ModelType::Checkpoint
+        );
         assert_eq!("LoRA".parse::<ModelType>().unwrap(), ModelType::Lora);
         assert!("bogus".parse::<ModelType>().is_err());
     }
