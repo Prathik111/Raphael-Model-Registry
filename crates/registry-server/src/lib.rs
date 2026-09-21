@@ -1572,10 +1572,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
-            file.sha256.as_deref(),
-            Some("a".repeat(64).as_str())
-        );
+        assert_eq!(file.sha256.as_deref(), Some("a".repeat(64).as_str()));
 
         let invalid_source = service
             .update_version(
@@ -1612,7 +1609,10 @@ mod tests {
             .execute(store.pool())
             .await
             .unwrap();
-        let corrupt_read = service.get_version(&model.id, &version.id).await.unwrap_err();
+        let corrupt_read = service
+            .get_version(&model.id, &version.id)
+            .await
+            .unwrap_err();
         assert!(matches!(corrupt_read, RegistryError::Storage(_)));
 
         sqlx::query("UPDATE model_versions SET metadata='[]' WHERE id=?")
