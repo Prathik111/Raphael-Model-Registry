@@ -20,8 +20,8 @@ jobs:
         run: cargo generate-lockfile
       - name: Commit lockfile
         run: |
-          if git diff --quiet -- Cargo.lock; then
-            echo "Cargo.lock is already current."
+          if git status --porcelain -- Cargo.lock | grep -q "^"; then
+            echo "Cargo.lock is already tracked/current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
