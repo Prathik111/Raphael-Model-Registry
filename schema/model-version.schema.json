@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raphael.local/schema/model-version.schema.json",
+  "title": "Raphael Model Version",
+  "type": "object",
+  "required": ["id", "model_id", "revision", "activation_prompts", "metadata", "created_at", "updated_at"],
+  "properties": {
+    "id": {"type":"string","minLength":3},
+    "model_id": {"type":"string","minLength":3},
+    "version_name": {"type":["string","null"]},
+    "base_model": {"type":["string","null"]},
+    "revision": {"type":"integer","minimum":1},
+    "source": {"type":["string","null"]},
+    "source_model_id": {"type":["string","null"]},
+    "source_version_id": {"type":["string","null"]},
+    "source_url": {"type":["string","null"]},
+    "activation_prompts": {"type":"array","items":{"type":"string"}},
+    "metadata": {"type":"object"},
+    "created_at": {"type":"integer"},
+    "updated_at": {"type":"integer"}
+  },
+  "additionalProperties": false
+}

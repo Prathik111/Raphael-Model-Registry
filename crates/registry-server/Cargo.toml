@@ -1,0 +1,30 @@
+[package]
+name = "registry-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+clap.workspace = true
+directories.workspace = true
+registry-api = { path = "../registry-api" }
+registry-core = { path = "../registry-core" }
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[[bin]]
+name = "raphael-registry"
+path = "src/main.rs"

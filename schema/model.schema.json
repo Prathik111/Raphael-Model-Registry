@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raphael.local/schema/model.schema.json",
+  "title": "Raphael Model",
+  "type": "object",
+  "required": ["id", "name", "model_type", "revision", "created_at", "updated_at", "extensions"],
+  "properties": {
+    "id": {"type":"string","minLength":3},
+    "name": {"type":"string","minLength":1,"maxLength":512},
+    "model_type": {"type":"string","enum":["checkpoint","lora","vae","embedding","controlnet","upscaler","text_encoder","clip_vision","ip_adapter","other"]},
+    "creator": {"type":["string","null"]},
+    "description": {"type":["string","null"]},
+    "base_model": {"type":["string","null"]},
+    "revision": {"type":"integer","minimum":1},
+    "created_at": {"type":"integer"},
+    "updated_at": {"type":"integer"},
+    "extensions": {"type":"object"}
+  },
+  "additionalProperties": false
+}

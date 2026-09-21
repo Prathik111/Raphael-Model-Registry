@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raphael.local/schema/events.schema.json",
+  "title": "Raphael Registry Event",
+  "type": "object",
+  "required": ["id", "event_type", "actor", "created_at", "payload"],
+  "properties": {
+    "id": {"type":"integer","minimum":1},
+    "event_type": {"type":"string","minLength":1},
+    "actor": {"type":"string","minLength":1},
+    "model_id": {"type":["string","null"]},
+    "payload": {"type":"object"},
+    "created_at": {"type":"integer"}
+  },
+  "additionalProperties": false
+}

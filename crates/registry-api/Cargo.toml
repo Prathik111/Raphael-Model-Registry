@@ -1,0 +1,16 @@
+[package]
+name = "registry-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-stream.workspace = true
+axum.workspace = true
+http.workspace = true
+registry-core = { path = "../registry-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
