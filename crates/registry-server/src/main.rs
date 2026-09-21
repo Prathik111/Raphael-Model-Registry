@@ -383,8 +383,7 @@ async fn import_model_manager(
             None => Vec::new(),
         };
 
-        let activation_prompts: Vec<String> =
-            match optional_legacy_string(&row, "activation_json") {
+        let activation_prompts: Vec<String> = match optional_legacy_string(&row, "activation_json") {
                 Some(value) => match serde_json::from_str(&value) {
                     Ok(value) => value,
                     Err(error) => {
