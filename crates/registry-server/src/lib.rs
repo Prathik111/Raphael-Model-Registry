@@ -306,7 +306,10 @@ impl ModelRepository for SqliteStore {
             qb.push(", ");
         }
         qb.push("revision=revision+1, updated_at=").push_bind(now);
-        qb.push(" WHERE id=").push_bind(id).push(" AND revision=").push_bind(expected_revision);
+        qb.push(" WHERE id=")
+            .push_bind(id)
+            .push(" AND revision=")
+            .push_bind(expected_revision);
         if qb
             .build()
             .execute(&mut *tx)
@@ -534,10 +537,14 @@ impl ModelVersionRepository for SqliteStore {
         if assignment_count > 0 {
             qb.push(", ");
         }
-        qb.push("revision=revision+1, updated_at=").push_bind(now_unix());
-        qb.push(" WHERE id=").push_bind(version_id)
-            .push(" AND model_id=").push_bind(model_id)
-            .push(" AND revision=").push_bind(expected_revision);
+        qb.push("revision=revision+1, updated_at=")
+            .push_bind(now_unix());
+        qb.push(" WHERE id=")
+            .push_bind(version_id)
+            .push(" AND model_id=")
+            .push_bind(model_id)
+            .push(" AND revision=")
+            .push_bind(expected_revision);
         if qb
             .build()
             .execute(&mut *tx)
