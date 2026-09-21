@@ -376,7 +376,7 @@ async fn import_model_manager(
                     id: Some(format!("legacy_version_{legacy_id}")),
                     version_name: optional_legacy_string(&row, "version_name"),
                     base_model: optional_legacy_string(&row, "base_model"),
-                    source: Some("civitai".into()).filter(|_| civitai_version_id.is_some()),
+                    source: civitai_version_id.is_some().then_some("civitai".into()),
                     source_model_id: civitai_model_id.map(|v| v.to_string()),
                     source_version_id: civitai_version_id.map(|v| v.to_string()),
                     source_url: optional_legacy_string(&row, "civitai_url"),
