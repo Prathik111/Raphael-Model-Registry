@@ -1267,6 +1267,205 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn http_api_smoke_covers_auth_crud_and_relationships() {
+        use registry_core::{FileStatus, ModelType};
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = registry_core::RegistryService::new(store);
+        let token = "integration-test-token".to_string();
+        let app = registry_api::router(registry_api::AppState::new(
+            service,
+            token.clone(),
+            registry_core::now_unix(),
+        ));
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::new();
+        let base = format!("http://{}", address);
+
+        assert!(client.get(format!("{base}/health")).send().await.unwrap().status().is_success());
+
+        let unauthorized = client.get(format!("{base}/api/v1/models")).send().await.unwrap();
+        assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        let checkpoint_response = client
+            .post(format!("{base}/api/v1/models"))
+            .bearer_auth(&token)
+            .header("x-raphael-actor", "integration-test")
+            .json(&serde_json::json!({
+                "id": "model_http_checkpoint",
+                "name": "HTTP Checkpoint",
+                "model_type": "checkpoint",
+                "base_model": "sdxl",
+                "extensions": {}
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(checkpoint_response.status(), reqwest::StatusCode::CREATED);
+        let checkpoint: registry_core::Model = checkpoint_response.json().await.unwrap();
+        assert_eq!(checkpoint.model_type, ModelType::Checkpoint);
+
+        let lora_response = client
+            .post(format!("{base}/api/v1/models"))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "id": "model_http_lora",
+                "name": "HTTP LoRA",
+                "model_type": "lora",
+                "base_model": "sdxl",
+                "extensions": {}
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(lora_response.status(), reqwest::StatusCode::CREATED);
+
+        let update_response = client
+            .patch(format!("{base}/api/v1/models/{}", checkpoint.id))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "description": "updated through HTTP",
+                "expected_revision": checkpoint.revision
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(update_response.status(), reqwest::StatusCode::OK);
+        let updated: registry_core::Model = update_response.json().await.unwrap();
+        assert_eq!(updated.revision, 2);
+
+        let stale = client
+            .patch(format!("{base}/api/v1/models/{}", checkpoint.id))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "name": "stale update",
+                "expected_revision": 1
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(stale.status(), reqwest::StatusCode::CONFLICT);
+
+        let version_response = client
+            .post(format!("{base}/api/v1/models/{}/versions", checkpoint.id))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "version_name": "v1",
+                "source": "civitai",
+                "activation_prompts": ["trigger"],
+                "metadata": {}
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(version_response.status(), reqwest::StatusCode::CREATED);
+        let version: registry_core::ModelVersion = version_response.json().await.unwrap();
+
+        let file_response = client
+            .post(format!("{base}/api/v1/models/{}/files", checkpoint.id))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "version_id": version.id,
+                "path": "D:/models/http-checkpoint.safetensors",
+                "filename": "http-checkpoint.safetensors",
+                "size_bytes": 1234,
+                "modified_at": 1,
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "status": "available"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(file_response.status(), reqwest::StatusCode::CREATED);
+        let file: registry_core::ModelFile = file_response.json().await.unwrap();
+        assert_eq!(file.status, FileStatus::Available);
+
+        for request in [
+            client
+                .post(format!("{base}/api/v1/models/{}/tags", checkpoint.id))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({"tag": "Portrait"})),
+            client
+                .post(format!("{base}/api/v1/models/{}/sources", checkpoint.id))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({
+                    "provider": "civitai",
+                    "external_model_id": "123",
+                    "external_version_id": "456",
+                    "url": "https://civitai.com/models/123",
+                    "metadata": {}
+                })),
+            client
+                .post(format!("{base}/api/v1/models/{}/assets", checkpoint.id))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({
+                    "kind": "thumbnail",
+                    "path": "D:/models/thumb.png",
+                    "metadata": {}
+                })),
+            client
+                .post(format!("{base}/api/v1/models/{}/relationships", checkpoint.id))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({
+                    "target_model_id": "model_http_lora",
+                    "relationship_type": "compatible_with",
+                    "metadata": {}
+                })),
+        ] {
+            assert!(request.send().await.unwrap().status().is_success());
+        }
+
+        let compatibility = client
+            .get(format!(
+                "{base}/api/v1/compatibility?checkpoint={}&lora=model_http_lora",
+                checkpoint.id
+            ))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(compatibility.status(), reqwest::StatusCode::OK);
+        let compatibility_body: serde_json::Value = compatibility.json().await.unwrap();
+        assert_eq!(compatibility_body["compatible"], true);
+
+        let events = client
+            .get(format!("{base}/api/v1/events/snapshot"))
+            .bearer_auth(&token)
+            .query(&[("after_id", 0_i64)])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(events.status(), reqwest::StatusCode::OK);
+        let events_body: Vec<registry_core::RegistryEvent> = events.json().await.unwrap();
+        assert!(events_body.iter().any(|event| event.event_type == "model.created"));
+        assert!(events_body.iter().any(|event| event.event_type == "model.updated"));
+        assert!(events_body.iter().any(|event| event.event_type == "model.file.attached"));
+        assert!(events_body.iter().any(|event| event.event_type == "model.relationship.created"));
+
+        let delete_response = client
+            .delete(format!("{base}/api/v1/models/{}", checkpoint.id))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(delete_response.status(), reqwest::StatusCode::NO_CONTENT);
+
+        let missing = client
+            .get(format!("{base}/api/v1/models/{}", checkpoint.id))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn tags_relationships_and_events_are_durable() {
         let store = Arc::new(SqliteStore::in_memory().await.unwrap());
         let service = RegistryService::new(store);
