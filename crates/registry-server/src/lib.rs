@@ -932,13 +932,19 @@ impl EventRepository for SqliteStore {
             .bind(after_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(db_error)?;
         rows.into_iter()
             .map(|row| {
+                let payload = serde_json::from_str::<Value>(&row.get::<String, _>("payload"))
+                    .map_err(|e| RegistryError::Storage(format!("invalid event payload: {e}")))?;
+                if !payload.is_object() {
+                    return Err(RegistryError::Storage(
+                        "event payload must be a JSON object".into(),
+                    ));
+                }
                 Ok(RegistryEvent {
                     id: row.get("id"),
                     event_type: row.get("event_type"),
                     actor: row.get("actor"),
                     model_id: optional_string(&row, "model_id"),
-                    payload: serde_json::from_str(&row.get::<String, _>("payload"))
-                        .unwrap_or_else(|_| json!({})),
+                    payload,
                     created_at: row.get("created_at"),
                 })
             })
@@ -1015,7 +1021,9 @@ impl EventRepository for SqliteStore {
              UNION ALL
              SELECT id FROM model_sources WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
              UNION ALL
-             SELECT id FROM model_relationships WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'",
+             SELECT id FROM model_relationships WHERE json_valid(metadata)=0 OR json_type(metadata) <> 'object'
+             UNION ALL
+             SELECT id FROM registry_events WHERE json_valid(payload)=0 OR json_type(payload) <> 'object'",
         )
         .fetch_all(&self.pool)
         .await
