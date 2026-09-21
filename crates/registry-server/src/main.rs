@@ -159,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !path.is_file() {
                 return Err("backup file does not exist".into());
             }
+            let _instance_lock = registry_server::InstanceLock::acquire(&cfg).await?;
             let store = SqliteStore::connect(&cfg.database_path).await?;
             store.pool().close().await;
             let wal_path = PathBuf::from(format!("{}-wal", cfg.database_path.display()));
