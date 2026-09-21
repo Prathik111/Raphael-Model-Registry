@@ -265,11 +265,11 @@ async fn models_command(
 
 async fn export_all_models(
     service: &RegistryService,
-) -> Result<(Vec<registry_core::Model>, u64), Box<dyn std::error::Error>> {
+) -> Result<(Vec<registry_core::Model>, i64), Box<dyn std::error::Error>> {
     const PAGE_SIZE: i64 = 200;
     let mut offset = 0_i64;
     let mut models = Vec::new();
-    let mut total = 0_u64;
+    let mut total = 0_i64;
 
     loop {
         let result = service
@@ -288,7 +288,7 @@ async fn export_all_models(
         offset += count;
     }
 
-    if models.len() as u64 != total {
+    if models.len() as i64 != total {
         return Err(format!(
             "export consistency check failed: collected {} models but search reported {}",
             models.len(),
