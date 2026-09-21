@@ -274,31 +274,39 @@ impl ModelRepository for SqliteStore {
         let now = now_unix();
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         let mut qb = sqlx::QueryBuilder::<Sqlite>::new("UPDATE models SET ");
-        let mut separated = qb.separated(", ");
+        let mut assignment_count = 0_u8;
+        macro_rules! assignment {
+            ($column:literal, $value:expr) => {{
+                if assignment_count > 0 {
+                    qb.push(", ");
+                }
+                qb.push($column).push("=").push_bind($value);
+                assignment_count += 1;
+            }};
+        }
         if let Some(value) = input.name {
-            separated.push("name=").push_bind(value);
+            assignment!("name", value);
         }
         if let Some(value) = input.model_type {
-            separated.push("model_type=").push_bind(value.to_string());
+            assignment!("model_type", value.to_string());
         }
         if let Some(value) = input.creator {
-            separated.push("creator=").push_bind(value);
+            assignment!("creator", value);
         }
         if let Some(value) = input.description {
-            separated.push("description=").push_bind(value);
+            assignment!("description", value);
         }
         if let Some(value) = input.base_model {
-            separated.push("base_model=").push_bind(value);
+            assignment!("base_model", value);
         }
         if let Some(value) = input.extensions {
-            separated.push("extensions=").push_bind(json_string(&value));
+            assignment!("extensions", json_string(&value));
         }
-        separated.push("revision=revision+1");
-        separated.push("updated_at=").push_bind(now);
-        qb.push(" WHERE id=")
-            .push_bind(id)
-            .push(" AND revision=")
-            .push_bind(expected_revision);
+        if assignment_count > 0 {
+            qb.push(", ");
+        }
+        qb.push("revision=revision+1, updated_at=").push_bind(now);
+        qb.push(" WHERE id=").push_bind(id).push(" AND revision=").push_bind(expected_revision);
         if qb
             .build()
             .execute(&mut *tx)
@@ -488,44 +496,48 @@ impl ModelVersionRepository for SqliteStore {
         let expected_revision = input.expected_revision;
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         let mut qb = sqlx::QueryBuilder::<Sqlite>::new("UPDATE model_versions SET ");
-        let mut separated = qb.separated(", ");
+        let mut assignment_count = 0_u8;
+        macro_rules! assignment {
+            ($column:literal, $value:expr) => {{
+                if assignment_count > 0 {
+                    qb.push(", ");
+                }
+                qb.push($column).push("=").push_bind($value);
+                assignment_count += 1;
+            }};
+        }
         if let Some(value) = input.version_name {
-            separated.push("version_name=").push_bind(value);
+            assignment!("version_name", value);
         }
         if let Some(value) = input.base_model {
-            separated.push("base_model=").push_bind(value);
+            assignment!("base_model", value);
         }
         if let Some(value) = input.source {
-            separated.push("source=").push_bind(value);
+            assignment!("source", value);
         }
         if let Some(value) = input.source_model_id {
-            separated.push("source_model_id=").push_bind(value);
+            assignment!("source_model_id", value);
         }
         if let Some(value) = input.source_version_id {
-            separated.push("source_version_id=").push_bind(value);
+            assignment!("source_version_id", value);
         }
         if let Some(value) = input.source_url {
-            separated.push("source_url=").push_bind(value);
+            assignment!("source_url", value);
         }
         if let Some(value) = input.activation_prompts {
             let prompts = Value::Array(value.into_iter().map(Value::String).collect());
-            separated
-                .push("activation_prompts=")
-                .push_bind(json_string(&prompts));
+            assignment!("activation_prompts", json_string(&prompts));
         }
         if let Some(value) = input.metadata {
-            separated.push("metadata=").push_bind(json_string(&value));
+            assignment!("metadata", json_string(&value));
         }
-        separated
-            .push("revision=revision+1")
-            .push("updated_at=")
-            .push_bind(now_unix());
-        qb.push(" WHERE id=")
-            .push_bind(version_id)
-            .push(" AND model_id=")
-            .push_bind(model_id)
-            .push(" AND revision=")
-            .push_bind(expected_revision);
+        if assignment_count > 0 {
+            qb.push(", ");
+        }
+        qb.push("revision=revision+1, updated_at=").push_bind(now_unix());
+        qb.push(" WHERE id=").push_bind(version_id)
+            .push(" AND model_id=").push_bind(model_id)
+            .push(" AND revision=").push_bind(expected_revision);
         if qb
             .build()
             .execute(&mut *tx)
