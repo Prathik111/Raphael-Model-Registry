@@ -802,14 +802,7 @@ impl SourceRepository for SqliteStore {
                 .map_err(db_error)?;
             (id, "model.source.created")
         };
-        insert_event(
-            &mut tx,
-            event_type,
-            actor,
-            Some(model_id),
-            json!({"id":id}),
-        )
-        .await?;
+        insert_event(&mut tx, event_type, actor, Some(model_id), json!({"id":id})).await?;
         tx.commit().await.map_err(db_error)?;
         let row=sqlx::query("SELECT id,model_id,provider,external_model_id,external_version_id,url,imported_at,metadata FROM model_sources WHERE id=?").bind(id).fetch_one(&self.pool).await.map_err(db_error)?;
         source_from_row(&row)
