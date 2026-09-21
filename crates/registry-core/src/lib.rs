@@ -825,9 +825,8 @@ impl RegistryService {
         model_id: &str,
         input: NewModelSource,
     ) -> Result<ModelSource> {
-        if input.provider.trim().is_empty() {
-            return Err(RegistryError::Validation("provider is required".into()));
-        }
+        input.provider = validate_name(&input.provider, "provider")?;
+        validate_extensions(&input.metadata)?;
         self.repo.add_source(actor, model_id, input).await
     }
 
