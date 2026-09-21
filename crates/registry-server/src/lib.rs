@@ -1293,7 +1293,74 @@ pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), Serve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use registry_core::{ModelType, NewModel, RegistryService, UpdateModel};
+    use registry_core::{ModelType, NewModel, NewModelSource, RegistryService, UpdateModel};
+
+    #[tokio::test]
+    async fn source_upsert_updates_existing_source() {
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = RegistryService::new(store);
+        service
+            .create_model(
+                "test",
+                NewModel {
+                    id: Some("model_source_test".into()),
+                    name: "Source test".into(),
+                    model_type: ModelType::Checkpoint,
+                    creator: None,
+                    description: None,
+                    base_model: None,
+                    extensions: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        service
+            .add_source(
+                "test",
+                "model_source_test",
+                NewModelSource {
+                    provider: "civitai".into(),
+                    external_model_id: Some("123".into()),
+                    external_version_id: Some("456".into()),
+                    url: Some("https://example.invalid/old".into()),
+                    metadata: json!({"revision": 1}),
+                },
+            )
+            .await
+            .unwrap();
+
+        let updated = service
+            .add_source(
+                "test",
+                "model_source_test",
+                NewModelSource {
+                    provider: "civitai".into(),
+                    external_model_id: Some("123".into()),
+                    external_version_id: Some("456".into()),
+                    url: Some("https://example.invalid/new".into()),
+                    metadata: json!({"revision": 2}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated.url.as_deref(), Some("https://example.invalid/new"));
+        assert_eq!(updated.metadata, json!({"revision": 2}));
+        assert_eq!(
+            service.list_sources("model_source_test").await.unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn non_loopback_bind_is_not_considered_localhost() {
+        assert!(is_loopback_bind("127.0.0.1"));
+        assert!(is_loopback_bind("::1"));
+        assert!(is_loopback_bind("localhost"));
+        assert!(!is_loopback_bind("0.0.0.0"));
+        assert!(!is_loopback_bind("192.168.1.10"));
+    }
 
     #[tokio::test]
     async fn sqlite_crud_and_revision_conflict_work() {
