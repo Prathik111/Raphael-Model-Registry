@@ -521,8 +521,9 @@ async fn import_model_manager(
 
         if let Some((stage, error)) = item_error {
             if created_new {
-                if let Err(rollback_error) =
-                    service.delete_model("model-manager-import", &model.id).await
+                if let Err(rollback_error) = service
+                    .delete_model("model-manager-import", &model.id)
+                    .await
                 {
                     failed.push(json!({
                         "id": legacy_id,
