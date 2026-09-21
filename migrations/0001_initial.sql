@@ -109,13 +109,14 @@ CREATE TABLE IF NOT EXISTS registry_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type TEXT NOT NULL,
     actor TEXT NOT NULL,
-    model_id TEXT REFERENCES models(id) ON DELETE SET NULL,
+    model_id TEXT,
     payload TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_registry_events_id ON registry_events(id);
 CREATE INDEX IF NOT EXISTS idx_registry_events_model ON registry_events(model_id, id);
+CREATE INDEX IF NOT EXISTS idx_registry_events_type ON registry_events(event_type, id);
 
 CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,

@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 async-stream.workspace = true
 axum.workspace = true
-http.workspace = true
+futures-util.workspace = true
 registry-core = { path = "../registry-core" }
 serde.workspace = true
 serde_json.workspace = true

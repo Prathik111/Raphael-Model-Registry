@@ -1,0 +1,756 @@
+openapi: 3.1.0
+info:
+  title: Raphael Model Registry API
+  version: 0.1.0
+  description: Canonical model metadata API for the Raphael ecosystem.
+servers:
+  - url: http://127.0.0.1:43217
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /api/v1/status:
+    get:
+      responses:
+        '200':
+          description: Registry status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/model-types:
+    get:
+      responses:
+        '200':
+          description: Supported model types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelType'
+  /api/v1/models:
+    get:
+      parameters:
+        - $ref: '#/components/parameters/q'
+        - $ref: '#/components/parameters/model_type'
+        - $ref: '#/components/parameters/tag'
+        - $ref: '#/components/parameters/creator'
+        - $ref: '#/components/parameters/base_model'
+        - $ref: '#/components/parameters/source'
+        - $ref: '#/components/parameters/hash'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Search result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewModel'
+      responses:
+        '201':
+          description: Created model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+  /api/v1/models/search:
+    get:
+      parameters:
+        - $ref: '#/components/parameters/q'
+        - $ref: '#/components/parameters/model_type'
+        - $ref: '#/components/parameters/tag'
+        - $ref: '#/components/parameters/creator'
+        - $ref: '#/components/parameters/base_model'
+        - $ref: '#/components/parameters/source'
+        - $ref: '#/components/parameters/hash'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Search result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+  /api/v1/models/{id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModel'
+      responses:
+        '200':
+          description: Updated model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      responses:
+        '204':
+          description: Deleted
+  /api/v1/models/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelVersion'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewModelVersion'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+  /api/v1/models/{id}/versions/{version_id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+      - $ref: '#/components/parameters/version_id'
+    get:
+      responses:
+        '200':
+          description: Version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+    patch:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelVersion'
+      responses:
+        '200':
+          description: Updated version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/models/{id}/files:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelFile'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewModelFile'
+      responses:
+        '201':
+          description: Attached file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelFile'
+  /api/v1/models/{id}/files/{file_id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+      - $ref: '#/components/parameters/file_id'
+    delete:
+      responses:
+        '204':
+          description: Detached
+  /api/v1/tags:
+    get:
+      responses:
+        '200':
+          description: Tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+  /api/v1/models/{id}/tags:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Model tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tag]
+              properties:
+                tag:
+                  type: string
+      responses:
+        '200':
+          description: Updated tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /api/v1/models/{id}/tags/{tag}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+      - name: tag
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      responses:
+        '200':
+          description: Updated tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /api/v1/models/{id}/sources:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelSource'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewModelSource'
+      responses:
+        '201':
+          description: Linked source
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelSource'
+  /api/v1/models/{id}/assets:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelAsset'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewModelAsset'
+      responses:
+        '201':
+          description: Attached asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelAsset'
+  /api/v1/models/{id}/relationships:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      responses:
+        '200':
+          description: Relationships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelRelationship'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewModelRelationship'
+      responses:
+        '201':
+          description: Created relationship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelRelationship'
+  /api/v1/models/{id}/relationships/{relationship_id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+      - $ref: '#/components/parameters/relationship_id'
+    delete:
+      responses:
+        '204':
+          description: Deleted
+  /api/v1/models/{id}/compatibility:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      parameters:
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/ModelType'
+      responses:
+        '200':
+          description: Deterministic compatibility candidates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompatibilityResult'
+  /api/v1/compatibility:
+    get:
+      parameters:
+        - name: checkpoint
+          in: query
+          required: true
+          schema: {type: string}
+        - name: lora
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Deterministic compatibility result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [checkpoint, lora, compatible, reason]
+                properties:
+                  checkpoint: {type: string}
+                  lora: {type: string}
+                  compatible: {type: boolean}
+                  reason: {type: string}
+  /api/v1/checkpoints:
+    get:
+      responses:
+        '200':
+          description: Checkpoint search result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+  /api/v1/loras:
+    get:
+      responses:
+        '200':
+          description: LoRA search result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+  /api/v1/events:
+    get:
+      responses:
+        '200':
+          description: Server-sent event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /api/v1/events/snapshot:
+    get:
+      parameters:
+        - $ref: '#/components/parameters/after_id'
+      responses:
+        '200':
+          description: Durable event snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RegistryEvent'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+    version_id:
+      name: version_id
+      in: path
+      required: true
+      schema: {type: string}
+    file_id:
+      name: file_id
+      in: path
+      required: true
+      schema: {type: string}
+    relationship_id:
+      name: relationship_id
+      in: path
+      required: true
+      schema: {type: string}
+    q:
+      name: q
+      in: query
+      schema: {type: string}
+    model_type:
+      name: model_type
+      in: query
+      schema:
+        $ref: '#/components/schemas/ModelType'
+    tag:
+      name: tag
+      in: query
+      schema: {type: string}
+    creator:
+      name: creator
+      in: query
+      schema: {type: string}
+    base_model:
+      name: base_model
+      in: query
+      schema: {type: string}
+    source:
+      name: source
+      in: query
+      schema: {type: string}
+    hash:
+      name: hash
+      in: query
+      schema: {type: string}
+    limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+    offset:
+      name: offset
+      in: query
+      schema: {type: integer, minimum: 0, default: 0}
+    after_id:
+      name: after_id
+      in: query
+      schema: {type: integer, minimum: 0, default: 0}
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Conflict:
+      description: Conflict, including revision conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+  schemas:
+    ApiError:
+      type: object
+      required: [error, message]
+      properties:
+        error: {type: string}
+        message: {type: string}
+    Health:
+      type: object
+      required: [status, service, api_version]
+      properties:
+        status: {type: string}
+        service: {type: string}
+        api_version: {type: string}
+    Status:
+      type: object
+      required: [status, api_version, started_at, checked_models, checked_versions]
+      properties:
+        status: {type: string}
+        api_version: {type: string}
+        started_at: {type: integer}
+        checked_models: {type: integer}
+        checked_versions: {type: integer}
+    ModelType:
+      type: string
+      enum: [checkpoint, lora, vae, embedding, controlnet, upscaler, text_encoder, clip_vision, ip_adapter, other]
+    Model:
+      type: object
+      required: [id, name, model_type, revision, created_at, updated_at, extensions]
+      properties:
+        id: {type: string, minLength: 3}
+        name: {type: string, minLength: 1, maxLength: 512}
+        model_type: {$ref: '#/components/schemas/ModelType'}
+        creator: {type: [string, 'null']}
+        description: {type: [string, 'null']}
+        base_model: {type: [string, 'null']}
+        revision: {type: integer, minimum: 1}
+        created_at: {type: integer}
+        updated_at: {type: integer}
+        extensions: {type: object}
+    NewModel:
+      type: object
+      required: [name, model_type]
+      properties:
+        id: {type: [string, 'null']}
+        name: {type: string}
+        model_type: {$ref: '#/components/schemas/ModelType'}
+        creator: {type: [string, 'null']}
+        description: {type: [string, 'null']}
+        base_model: {type: [string, 'null']}
+        extensions: {type: object}
+    UpdateModel:
+      type: object
+      required: [expected_revision]
+      properties:
+        name: {type: [string, 'null']}
+        model_type: {$ref: '#/components/schemas/ModelType'}
+        creator: {type: [string, 'null']}
+        description: {type: [string, 'null']}
+        base_model: {type: [string, 'null']}
+        extensions: {type: [object, 'null']}
+        expected_revision: {type: integer, minimum: 1}
+    ModelVersion:
+      type: object
+      required: [id, model_id, revision, activation_prompts, metadata, created_at, updated_at]
+      properties:
+        id: {type: string}
+        model_id: {type: string}
+        version_name: {type: [string, 'null']}
+        base_model: {type: [string, 'null']}
+        revision: {type: integer, minimum: 1}
+        source: {type: [string, 'null']}
+        source_model_id: {type: [string, 'null']}
+        source_version_id: {type: [string, 'null']}
+        source_url: {type: [string, 'null']}
+        activation_prompts: {type: array, items: {type: string}}
+        metadata: {type: object}
+        created_at: {type: integer}
+        updated_at: {type: integer}
+    NewModelVersion:
+      type: object
+      properties:
+        id: {type: [string, 'null']}
+        version_name: {type: [string, 'null']}
+        base_model: {type: [string, 'null']}
+        source: {type: [string, 'null']}
+        source_model_id: {type: [string, 'null']}
+        source_version_id: {type: [string, 'null']}
+        source_url: {type: [string, 'null']}
+        activation_prompts: {type: array, items: {type: string}}
+        metadata: {type: object}
+    UpdateModelVersion:
+      type: object
+      required: [expected_revision]
+      properties:
+        version_name: {type: [string, 'null']}
+        base_model: {type: [string, 'null']}
+        source: {type: [string, 'null']}
+        source_model_id: {type: [string, 'null']}
+        source_version_id: {type: [string, 'null']}
+        source_url: {type: [string, 'null']}
+        activation_prompts:
+          type: [array, 'null']
+          items: {type: string}
+        metadata: {type: [object, 'null']}
+        expected_revision: {type: integer, minimum: 1}
+    ModelFile:
+      type: object
+      required: [id, model_id, path, filename, size_bytes, modified_at, status, created_at, updated_at]
+      properties:
+        id: {type: string}
+        model_id: {type: string}
+        version_id: {type: [string, 'null']}
+        path: {type: string}
+        relative_path: {type: [string, 'null']}
+        filename: {type: string}
+        size_bytes: {type: integer, minimum: 0}
+        modified_at: {type: integer}
+        sha256: {type: [string, 'null'], minLength: 64, maxLength: 64}
+        status: {type: string, enum: [available, missing, invalid, offline]}
+        created_at: {type: integer}
+        updated_at: {type: integer}
+    NewModelFile:
+      type: object
+      required: [path, filename, size_bytes, modified_at]
+      properties:
+        id: {type: [string, 'null']}
+        version_id: {type: [string, 'null']}
+        path: {type: string}
+        relative_path: {type: [string, 'null']}
+        filename: {type: string}
+        size_bytes: {type: integer, minimum: 0}
+        modified_at: {type: integer}
+        sha256: {type: [string, 'null'], minLength: 64, maxLength: 64}
+        status: {type: string, enum: [available, missing, invalid, offline], default: available}
+    Tag:
+      type: object
+      required: [name, count]
+      properties:
+        name: {type: string}
+        count: {type: integer, minimum: 0}
+    ModelSource:
+      type: object
+      required: [id, model_id, provider, imported_at, metadata]
+      properties:
+        id: {type: string}
+        model_id: {type: string}
+        provider: {type: string}
+        external_model_id: {type: [string, 'null']}
+        external_version_id: {type: [string, 'null']}
+        url: {type: [string, 'null']}
+        imported_at: {type: integer}
+        metadata: {type: object}
+    NewModelSource:
+      type: object
+      required: [provider]
+      properties:
+        provider: {type: string}
+        external_model_id: {type: [string, 'null']}
+        external_version_id: {type: [string, 'null']}
+        url: {type: [string, 'null']}
+        metadata: {type: object}
+    ModelAsset:
+      type: object
+      required: [id, model_id, kind, path, metadata, created_at, updated_at]
+      properties:
+        id: {type: string}
+        model_id: {type: string}
+        kind: {type: string, enum: [thumbnail, cover, gallery, preview]}
+        path: {type: string}
+        source: {type: [string, 'null']}
+        metadata: {type: object}
+        created_at: {type: integer}
+        updated_at: {type: integer}
+    NewModelAsset:
+      type: object
+      required: [kind, path]
+      properties:
+        id: {type: [string, 'null']}
+        kind: {type: string, enum: [thumbnail, cover, gallery, preview]}
+        path: {type: string}
+        source: {type: [string, 'null']}
+        metadata: {type: object}
+    NewModelRelationship:
+      type: object
+      required: [target_model_id, relationship_type]
+      properties:
+        id: {type: [string, 'null']}
+        target_model_id: {type: string}
+        relationship_type: {type: string, enum: [compatible_with, derived_from, recommended_with, requires, related_to]}
+        metadata: {type: object}
+    ModelRelationship:
+      type: object
+      required: [id, source_model_id, target_model_id, relationship_type, metadata, created_at]
+      properties:
+        id: {type: string}
+        source_model_id: {type: string}
+        target_model_id: {type: string}
+        relationship_type: {type: string, enum: [compatible_with, derived_from, recommended_with, requires, related_to]}
+        metadata: {type: object}
+        created_at: {type: integer}
+    SearchResult:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Model'}
+        total: {type: integer, minimum: 0}
+        limit: {type: integer, minimum: 1}
+        offset: {type: integer, minimum: 0}
+    CompatibilityResult:
+      type: object
+      required: [model_id, requested_type, candidates]
+      properties:
+        model_id: {type: string}
+        requested_type: {$ref: '#/components/schemas/ModelType'}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/Model'}
+    RegistryEvent:
+      type: object
+      required: [id, event_type, actor, created_at, payload]
+      properties:
+        id: {type: integer, minimum: 1}
+        event_type: {type: string, minLength: 1}
+        actor: {type: string, minLength: 1}
+        model_id: {type: [string, 'null']}
+        payload: {type: object}
+        created_at: {type: integer}
