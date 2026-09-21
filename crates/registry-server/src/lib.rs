@@ -1520,6 +1520,112 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn validation_normalizes_hashes_and_detects_corrupt_version_json() {
+        use registry_core::{
+            FileStatus, ModelType, NewModel, NewModelFile, NewModelVersion, UpdateModelVersion,
+        };
+
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = registry_core::RegistryService::new(store.clone());
+        let model = service
+            .create_model(
+                "test",
+                NewModel {
+                    id: Some("model_validation".into()),
+                    name: "Validation".into(),
+                    model_type: ModelType::Checkpoint,
+                    creator: None,
+                    description: None,
+                    base_model: Some("sdxl".into()),
+                    extensions: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        let version = service
+            .create_version(
+                "test",
+                &model.id,
+                NewModelVersion {
+                    version_name: Some("v1".into()),
+                    metadata: json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let file = service
+            .add_file(
+                "test",
+                &model.id,
+                NewModelFile {
+                    version_id: Some(version.id.clone()),
+                    path: "model.safetensors".into(),
+                    relative_path: None,
+                    filename: "model.safetensors".into(),
+                    size_bytes: 1,
+                    modified_at: 1,
+                    sha256: Some(format!("  {}  ", "A".repeat(64))),
+                    status: FileStatus::Available,
+                    id: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            file.sha256.as_deref(),
+            Some("a".repeat(64).as_str())
+        );
+
+        let invalid_source = service
+            .update_version(
+                "test",
+                &model.id,
+                &version.id,
+                UpdateModelVersion {
+                    source: Some(Some("   ".into())),
+                    expected_revision: version.revision,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(invalid_source, RegistryError::Validation(_)));
+
+        let invalid_prompt = service
+            .update_version(
+                "test",
+                &model.id,
+                &version.id,
+                UpdateModelVersion {
+                    activation_prompts: Some(vec!["x".repeat(8_193)]),
+                    expected_revision: version.revision,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(invalid_prompt, RegistryError::Validation(_)));
+
+        sqlx::query("UPDATE model_versions SET activation_prompts='{}' WHERE id=?")
+            .bind(&version.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        let corrupt_read = service.get_version(&model.id, &version.id).await.unwrap_err();
+        assert!(matches!(corrupt_read, RegistryError::Storage(_)));
+
+        sqlx::query("UPDATE model_versions SET metadata='[]' WHERE id=?")
+            .bind(&version.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        let report = service.integrity_report().await.unwrap();
+        assert!(!report.ok);
+        assert!(report.issues.iter().any(|issue| issue.code == "bad_json"));
+    }
+
+    #[tokio::test]
     async fn tags_relationships_and_events_are_durable() {
         let store = Arc::new(SqliteStore::in_memory().await.unwrap());
         let service = RegistryService::new(store);
