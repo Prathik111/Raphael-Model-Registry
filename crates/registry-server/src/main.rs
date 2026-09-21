@@ -331,10 +331,25 @@ async fn import_model_manager(
         .await?;
     let names: Vec<String> = columns.iter().map(|r| r.get("name")).collect();
     let known = [
-        "id", "path", "relative_path", "filename", "model_type", "size_bytes",
-        "modified_at", "civitai_model_id", "civitai_version_id", "civitai_url",
-        "civitai_name", "version_name", "base_model", "creator", "description",
-        "tags_json", "activation_json", "source_hash", "updated_at",
+        "id",
+        "path",
+        "relative_path",
+        "filename",
+        "model_type",
+        "size_bytes",
+        "modified_at",
+        "civitai_model_id",
+        "civitai_version_id",
+        "civitai_url",
+        "civitai_name",
+        "version_name",
+        "base_model",
+        "creator",
+        "description",
+        "tags_json",
+        "activation_json",
+        "source_hash",
+        "updated_at",
     ];
     let unmapped: Vec<String> = names
         .iter()
