@@ -418,14 +418,16 @@ async fn import_model_manager(
             .await
         {
             Ok(model) => (model, true),
-            Err(registry_core::RegistryError::Conflict(_)) => match service.get_model(&model_id).await {
+            Err(registry_core::RegistryError::Conflict(_)) => match service
+                .get_model(&model_id)
+                .await
+            {
                 Ok(model) => (model, false),
                 Err(error) => {
                     failed.push(json!({"id":legacy_id,"stage":"model","error":error.to_string()}));
                     continue;
                 }
-            }
-            }
+            },
             Err(error) => {
                 failed.push(json!({"id":legacy_id,"stage":"model","error":error.to_string()}));
                 continue;
