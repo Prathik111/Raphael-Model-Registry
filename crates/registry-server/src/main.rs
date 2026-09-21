@@ -250,14 +250,12 @@ async fn models_command(
             let (models, total) = export_all_models(&service).await?;
             fs::write(
                 &path,
-                serde_json::to_vec_pretty(
-                    &json!({
-                        "api_version":"v1",
-                        "exported_at":registry_core::now_unix(),
-                        "models":models,
-                        "total":total
-                    }),
-                )?,
+                serde_json::to_vec_pretty(&json!({
+                    "api_version":"v1",
+                    "exported_at":registry_core::now_unix(),
+                    "models":models,
+                    "total":total
+                }))?,
             )?;
             println!("exported {} models to {}", total, path.display());
         }
