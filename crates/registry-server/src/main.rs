@@ -424,7 +424,8 @@ async fn import_model_manager(
                     failed.push(json!({"id":legacy_id,"stage":"model","error":error.to_string()}));
                     continue;
                 }
-            },
+            }
+            }
             Err(error) => {
                 failed.push(json!({"id":legacy_id,"stage":"model","error":error.to_string()}));
                 continue;
@@ -614,7 +615,6 @@ fn optional_legacy_name(row: &sqlx::sqlite::SqliteRow) -> String {
         .or_else(|| optional_legacy_string(row, "filename"))
         .unwrap_or_else(|| "Imported model".into())
 }
-
 
 #[cfg(test)]
 mod tests {
