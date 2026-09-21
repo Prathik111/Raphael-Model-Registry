@@ -1109,6 +1109,7 @@ pub struct RegistryConfig {
     pub port: u16,
     pub auth_token: Option<String>,
     pub cors_origin: Option<String>,
+    pub allow_insecure_lan: bool,
 }
 
 impl RegistryConfig {
@@ -1136,6 +1137,10 @@ impl RegistryConfig {
             cors_origin: std::env::var("RAPHAEL_REGISTRY_CORS_ORIGIN")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
+            allow_insecure_lan: std::env::var("RAPHAEL_REGISTRY_ALLOW_INSECURE_LAN")
+                .ok()
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
         }
     }
 
@@ -1146,19 +1151,23 @@ impl RegistryConfig {
 
 pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
     fs::create_dir_all(&config.data_dir)?;
-    if let Some(token) = &config.auth_token {
-        return Ok(token.clone());
-    }
     let token_path = config.data_dir.join("registry.token");
-    if let Ok(value) = fs::read_to_string(&token_path) {
+
+    let token = if let Some(token) = &config.auth_token {
+        token.clone()
+    } else if let Ok(value) = fs::read_to_string(&token_path) {
         let token = value.trim().to_string();
         if !token.is_empty() {
-            return Ok(token);
+            token
+        } else {
+            generate_token()
         }
-    }
-    let mut bytes = [0_u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    } else {
+        generate_token()
+    };
+
+    // Keep discovery and authentication consistent even when the credential
+    // was supplied explicitly through the environment/CLI.
     fs::write(&token_path, format!("{token}\n"))?;
     #[cfg(unix)]
     {
@@ -1166,6 +1175,21 @@ pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
         let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
     }
     Ok(token)
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+}
+
+fn is_loopback_bind(bind: &str) -> bool {
+    if bind.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    bind.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 pub struct InstanceLock {
@@ -1226,6 +1250,11 @@ impl Drop for InstanceLock {
 }
 
 pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), ServerError> {
+    if !is_loopback_bind(&config.bind) && !config.allow_insecure_lan {
+        return Err(ServerError::Server(
+            "refusing plaintext HTTP on a non-loopback bind; configure HTTPS or explicitly set RAPHAEL_REGISTRY_ALLOW_INSECURE_LAN=true for a trusted network".into(),
+        ));
+    }
     fs::create_dir_all(&config.data_dir)?;
     let token = load_or_create_token(&config)?;
     let mut lock = InstanceLock::acquire(&config).await?;
