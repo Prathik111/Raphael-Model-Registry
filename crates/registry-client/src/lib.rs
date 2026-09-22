@@ -145,6 +145,26 @@ impl RegistryClient {
         .await
     }
 
+    pub async fn compatible(
+        &self,
+        model_id: &str,
+        model_type: Option<registry_core::ModelType>,
+    ) -> Result<Vec<Model>, ClientError> {
+        let params = model_type
+            .map(|value| vec![("type", value.to_string())])
+            .unwrap_or_default();
+        let result: registry_core::CompatibilityResult = self
+            .send_json(
+                self.request(
+                    reqwest::Method::GET,
+                    &format!("/api/v1/models/{model_id}/compatibility"),
+                )
+                .query(&params),
+            )
+            .await?;
+        Ok(result.candidates)
+    }
+
     pub async fn create(&self, model: &NewModel) -> Result<Model, ClientError> {
         self.send_json(
             self.request(reqwest::Method::POST, "/api/v1/models")
