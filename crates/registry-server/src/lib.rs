@@ -1149,9 +1149,9 @@ pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
     let token = if let Some(token) = &config.auth_token {
         token.clone()
     } else if let Ok(value) = fs::read_to_string(&token_path) {
-        let token = value.trim();
-        if is_six_digit_token(token) {
-            token.to_string()
+        let token = value.trim().to_string();
+        if !token.is_empty() {
+            token
         } else {
             generate_token()
         }
@@ -1171,12 +1171,9 @@ pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
 }
 
 fn generate_token() -> String {
-    let value = 100_000 + (rand::rng().next_u32() % 900_000);
-    value.to_string()
-}
-
-fn is_six_digit_token(token: &str) -> bool {
-    token.len() == 6 && token.bytes().all(|byte| byte.is_ascii_digit())
+    let mut bytes = [0_u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
 }
 
 fn is_loopback_bind(bind: &str) -> bool {
@@ -1288,26 +1285,6 @@ pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), Serve
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn generated_tokens_are_six_digit_numbers() {
-        for _ in 0..100 {
-            let token = generate_token();
-            assert!(is_six_digit_token(&token));
-            let value: u32 = token.parse().unwrap();
-            assert!((100_000..=999_999).contains(&value));
-        }
-    }
-
-    #[test]
-    fn non_six_digit_tokens_are_rejected_for_generated_credentials() {
-        assert!(!is_six_digit_token(""));
-        assert!(!is_six_digit_token("12345"));
-        assert!(!is_six_digit_token("1234567"));
-        assert!(!is_six_digit_token("abcdef"));
-        assert!(!is_six_digit_token("12 3456"));
-        assert!(is_six_digit_token("123456"));
-    }
-
     use super::*;
     use registry_core::{ModelType, NewModel, NewModelSource, RegistryService, UpdateModel};
 
