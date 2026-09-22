@@ -1150,7 +1150,9 @@ pub fn load_or_create_token(config: &RegistryConfig) -> io::Result<String> {
         token.clone()
     } else if let Ok(value) = fs::read_to_string(&token_path) {
         let token = value.trim().to_string();
-        if !token.is_empty() {
+        if !token.is_empty()
+            && !(token.len() == 6 && token.bytes().all(|byte| byte.is_ascii_digit()))
+        {
             token
         } else {
             generate_token()
