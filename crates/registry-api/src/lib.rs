@@ -586,7 +586,13 @@ async fn get_asset_content(
         status: StatusCode::NOT_FOUND,
         message: "asset content not found".into(),
     })?;
-    let content_type = match path.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+    let content_type = match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "webp" => "image/webp",
@@ -595,7 +601,12 @@ async fn get_asset_content(
         "svg" => "image/svg+xml",
         _ => "application/octet-stream",
     };
-    Ok((StatusCode::OK, [(header::CONTENT_TYPE, content_type)], Bytes::from(bytes)).into_response())
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, content_type)],
+        Bytes::from(bytes),
+    )
+        .into_response())
 }
 
 async fn upload_asset_content(
@@ -606,19 +617,50 @@ async fn upload_asset_content(
 ) -> ApiResult<(StatusCode, Json<registry_core::ModelAsset>)> {
     require_auth(&headers, &state.token)?;
     if body.is_empty() {
-        return Err(ApiError { status: StatusCode::BAD_REQUEST, message: "asset body is empty".into() });
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "asset body is empty".into(),
+        });
     }
-    let kind = headers.get("x-raphael-asset-kind").and_then(|v| v.to_str().ok()).unwrap_or("preview")
-        .parse::<registry_core::AssetKind>().map_err(ApiError::from_core)?;
-    let extension = match headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("") {
-        "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/avif" => "avif", "image/gif" => "gif", _ => "bin",
+    let kind = headers
+        .get("x-raphael-asset-kind")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("preview")
+        .parse::<registry_core::AssetKind>()
+        .map_err(ApiError::from_core)?;
+    let extension = match headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+    {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/avif" => "avif",
+        "image/gif" => "gif",
+        _ => "bin",
     };
     let asset_id = registry_core::new_id("asset");
     let relative = PathBuf::from("assets").join(&id).join(format!("{asset_id}.{extension}"));
     let path = state.asset_dir.join(&relative);
-    if let Some(parent) = path.parent() { tokio::fs::create_dir_all(parent).await.map_err(|e| ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("could not prepare asset storage: {e}") })?; }
-    tokio::fs::write(&path, &body).await.map_err(|e| ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("could not store asset: {e}") })?;
-    let source = headers.get("x-raphael-asset-source").and_then(|v| v.to_str().ok()).map(str::to_string);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("could not prepare asset storage: {e}"),
+            })?;
+    }
+    tokio::fs::write(&path, &body)
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("could not store asset: {e}"),
+        })?;
+    let source = headers
+        .get("x-raphael-asset-source")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let digest = Sha256::digest(&body);
     let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     let metadata = json!({
