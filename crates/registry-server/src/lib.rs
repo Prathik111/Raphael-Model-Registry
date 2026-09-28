@@ -870,12 +870,12 @@ impl registry_core::AssetRepository for SqliteStore {
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         let deleted = sqlx::query("DELETE FROM model_assets WHERE id=? AND model_id=?")
-        .bind(asset_id)
-        .bind(model_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(db_error)?
-        .rows_affected();
+            .bind(asset_id)
+            .bind(model_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_error)?
+            .rows_affected();
 
         if deleted == 0 {
             return Err(RegistryError::NotFound(format!("asset '{asset_id}'")));
