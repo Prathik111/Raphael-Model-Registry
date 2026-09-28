@@ -1,0 +1,23 @@
+name: Rustfmt debug
+
+on:
+  push:
+    branches:
+      - feature/asset-content-api
+
+jobs:
+  rustfmt-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Generate rustfmt diff
+        shell: bash
+        run: |
+          cargo fmt --all
+          git diff -- . ':(exclude).github/workflows/rustfmt-debug.yml' > rustfmt.diff
+      - name: Upload rustfmt diff
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-diff
+          path: rustfmt.diff
