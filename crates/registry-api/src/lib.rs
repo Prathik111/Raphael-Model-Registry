@@ -17,6 +17,7 @@ use registry_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::{convert::Infallible, path::{Path as FsPath, PathBuf}, sync::Arc, time::Duration};
 use tokio::time::sleep;
 
@@ -211,6 +212,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(list_assets).post(add_asset),
         )
         .route(
+            "/api/v1/models/{id}/assets/{asset_id}",
+            delete(delete_asset),
+        )
+        .route(
             "/api/v1/models/{id}/assets/{asset_id}/content",
             axum::routing::get(get_asset_content).post(upload_asset_content),
         )
@@ -329,13 +334,33 @@ async fn update_model(
     )?))
 }
 
+fn asset_storage_path(state: &AppState, asset: &registry_core::ModelAsset) -> ApiResult<PathBuf> {
+    let relative = FsPath::new(&asset.path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "invalid stored asset path".into(),
+        });
+    }
+    Ok(state.asset_dir.join(relative))
+}
+
 async fn delete_model(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
     require_auth(&headers, &state.token)?;
+    let assets = core(state.service.list_assets(&id).await)?;
     core(state.service.delete_model(&actor(&headers), &id).await)?;
+    for asset in assets {
+        let path = asset_storage_path(&state, &asset)?;
+        let _ = tokio::fs::remove_file(path).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -522,6 +547,30 @@ async fn add_asset(
     ))
 }
 
+async fn delete_asset(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, asset_id)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    require_auth(&headers, &state.token)?;
+    let asset = core(state.service.list_assets(&id).await)?
+        .into_iter()
+        .find(|asset| asset.id == asset_id)
+        .ok_or_else(|| ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "asset not found".into(),
+        })?;
+    let path = asset_storage_path(&state, &asset)?;
+    core(
+        state
+            .service
+            .delete_asset(&actor(&headers), &id, &asset_id)
+            .await,
+    )?;
+    let _ = tokio::fs::remove_file(path).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn get_asset_content(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -532,11 +581,7 @@ async fn get_asset_content(
         .into_iter()
         .find(|asset| asset.id == asset_id)
         .ok_or_else(|| ApiError { status: StatusCode::NOT_FOUND, message: "asset not found".into() })?;
-    let relative = FsPath::new(&asset.path);
-    if relative.is_absolute() || relative.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
-        return Err(ApiError { status: StatusCode::BAD_REQUEST, message: "invalid stored asset path".into() });
-    }
-    let path = state.asset_dir.join(relative);
+    let path = asset_storage_path(&state, &asset)?;
     let bytes = tokio::fs::read(&path).await.map_err(|_| ApiError {
         status: StatusCode::NOT_FOUND,
         message: "asset content not found".into(),
@@ -574,7 +619,13 @@ async fn upload_asset_content(
     if let Some(parent) = path.parent() { tokio::fs::create_dir_all(parent).await.map_err(|e| ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("could not prepare asset storage: {e}") })?; }
     tokio::fs::write(&path, &body).await.map_err(|e| ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("could not store asset: {e}") })?;
     let source = headers.get("x-raphael-asset-source").and_then(|v| v.to_str().ok()).map(str::to_string);
-    let metadata = json!({ "content_type": headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()), "size_bytes": body.len() });
+    let digest = Sha256::digest(&body);
+    let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let metadata = json!({
+        "content_type": headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+        "size_bytes": body.len(),
+        "sha256": sha256
+    });
     match core(state.service.add_asset(&actor(&headers), &id, NewModelAsset {
         id: Some(asset_id), kind, path: relative.to_string_lossy().replace('\\', "/"), source, metadata,
     }).await) {
