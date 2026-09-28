@@ -257,6 +257,63 @@ impl RegistryClient {
         .await
     }
 
+    pub async fn assets(&self, id: &str) -> Result<Vec<registry_core::ModelAsset>, ClientError> {
+        self.send_json(
+            self.request(
+                reqwest::Method::GET,
+                &format!("/api/v1/models/{id}/assets"),
+            ),
+        )
+        .await
+    }
+
+    pub async fn delete_asset(&self, model_id: &str, asset_id: &str) -> Result<(), ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::DELETE,
+                &format!("/api/v1/models/{model_id}/assets/{asset_id}"),
+            )
+            .send()
+            .await?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let status = response.status();
+            Err(ClientError::Api {
+                status,
+                message: response.text().await.unwrap_or_default(),
+            })
+        }
+    }
+
+    pub async fn asset_content(
+        &self,
+        model_id: &str,
+        asset_id: &str,
+    ) -> Result<(String, Vec<u8>), ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/api/v1/models/{model_id}/assets/{asset_id}/content"),
+            )
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ClientError::Api {
+                status,
+                message: response.text().await.unwrap_or_default(),
+            });
+        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        Ok((content_type, response.bytes().await?.to_vec()))
+    }
+
     pub async fn add_source(
         &self,
         id: &str,
