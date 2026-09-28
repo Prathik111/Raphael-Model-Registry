@@ -659,7 +659,9 @@ async fn upload_asset_content(
         _ => "bin",
     };
     let asset_id = registry_core::new_id("asset");
-    let relative = PathBuf::from("assets").join(&id).join(format!("{asset_id}.{extension}"));
+    let relative = PathBuf::from("assets")
+        .join(&id)
+        .join(format!("{asset_id}.{extension}"));
     let path = state.asset_dir.join(&relative);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -689,11 +691,27 @@ async fn upload_asset_content(
         "size_bytes": body.len(),
         "sha256": sha256
     });
-    match core(state.service.add_asset(&actor(&headers), &id, NewModelAsset {
-        id: Some(asset_id), kind, path: relative.to_string_lossy().replace('\\', "/"), source, metadata,
-    }).await) {
+    match core(
+        state
+            .service
+            .add_asset(
+                &actor(&headers),
+                &id,
+                NewModelAsset {
+                    id: Some(asset_id),
+                    kind,
+                    path: relative.to_string_lossy().replace('\\', "/"),
+                    source,
+                    metadata,
+                },
+            )
+            .await,
+    ) {
         Ok(asset) => Ok((StatusCode::CREATED, Json(asset))),
-        Err(error) => { let _ = tokio::fs::remove_file(&path).await; Err(error) }
+        Err(error) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            Err(error)
+        }
     }
 }
 
