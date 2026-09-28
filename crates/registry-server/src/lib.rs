@@ -863,6 +863,43 @@ impl registry_core::AssetRepository for SqliteStore {
         .map_err(db_error)?;
         asset_from_row(&row)
     }
+
+    async fn delete_asset(
+        &self,
+        actor: &str,
+        model_id: &str,
+        asset_id: &str,
+    ) -> Result<()> {
+        if !self.model_exists(model_id).await? {
+            return Err(RegistryError::NotFound(format!("model '{model_id}'")));
+        }
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        let deleted = sqlx::query(
+            "DELETE FROM model_assets WHERE id=? AND model_id=?",
+        )
+        .bind(asset_id)
+        .bind(model_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?
+        .rows_affected();
+
+        if deleted == 0 {
+            return Err(RegistryError::NotFound(format!("asset '{asset_id}'")));
+        }
+
+        insert_event(
+            &mut tx,
+            "model.asset.deleted",
+            actor,
+            Some(model_id),
+            json!({"id": asset_id}),
+        )
+        .await?;
+
+        tx.commit().await.map_err(db_error)?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
