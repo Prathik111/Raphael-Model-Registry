@@ -622,7 +622,9 @@ async fn upload_asset_content(
     let digest = Sha256::digest(&body);
     let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     let metadata = json!({
-        "content_type": headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+        "content_type": headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
         "size_bytes": body.len(),
         "sha256": sha256
     });
