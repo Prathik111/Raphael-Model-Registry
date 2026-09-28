@@ -28,19 +28,6 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Capture rustfmt diff
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cargo fmt --all
-          git diff > rustfmt.diff
-
-      - name: Upload rustfmt diff
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustfmt-diff
-          path: rustfmt.diff
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
