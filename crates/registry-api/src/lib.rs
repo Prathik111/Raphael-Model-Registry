@@ -588,16 +588,32 @@ async fn model_compatibility(
     require_auth(&headers, &state.token)?;
     let source = core(state.service.get_model(&id).await)?;
     let requested_type = query.model_type.unwrap_or(ModelType::Lora);
-    let candidates = core(
-        state
-            .service
-            .search_models(ModelSearch {
-                model_type: Some(requested_type.clone()),
-                limit: 200,
-                ..Default::default()
-            })
-            .await,
-    )?;
+
+    // Compatibility must not silently stop at the first 200 models. Walk every
+    // search page, then apply the deterministic compatibility rules over the
+    // complete candidate set.
+    let mut all_candidates = Vec::new();
+    let mut offset = 0_i64;
+    loop {
+        let page = core(
+            state
+                .service
+                .search_models(ModelSearch {
+                    model_type: Some(requested_type.clone()),
+                    limit: 200,
+                    offset,
+                    ..Default::default()
+                })
+                .await,
+        )?;
+        let page_len = page.items.len() as i64;
+        all_candidates.extend(page.items);
+        if page_len == 0 || offset + page_len >= page.total {
+            break;
+        }
+        offset += page_len;
+    }
+
     let relationships = core(state.service.list_relationships(&id).await)?;
     let explicit: Vec<String> = relationships
         .iter()
@@ -610,14 +626,14 @@ async fn model_compatibility(
             }
         })
         .collect();
-    let candidates = candidates
-        .items
+    let candidates = all_candidates
         .into_iter()
         .filter(|candidate| {
             explicit.iter().any(|target| target == &candidate.id)
                 || (source.base_model.is_some() && source.base_model == candidate.base_model)
         })
         .collect();
+
     Ok(Json(CompatibilityResult {
         model_id: id,
         requested_type,
