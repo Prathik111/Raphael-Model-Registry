@@ -1422,6 +1422,7 @@ mod tests {
             service,
             token.clone(),
             registry_core::now_unix(),
+            std::env::temp_dir().join("raphael-registry-test-assets"),
         ));
 
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
