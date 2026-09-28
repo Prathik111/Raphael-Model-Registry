@@ -1263,7 +1263,7 @@ pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), Serve
     )?;
     let store = Arc::new(SqliteStore::connect(&config.database_path).await?);
     let service = registry_core::RegistryService::new(store);
-    let state = registry_api::AppState::new(service, token, now_unix());
+    let state = registry_api::AppState::new(service, token, now_unix(), config.data_dir.clone());
     let app = registry_api::router(state);
     let app = if let Some(origin) = &config.cors_origin {
         let origin = origin
