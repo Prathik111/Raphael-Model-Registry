@@ -863,6 +863,36 @@ impl registry_core::AssetRepository for SqliteStore {
         .map_err(db_error)?;
         asset_from_row(&row)
     }
+
+    async fn delete_asset(&self, actor: &str, model_id: &str, asset_id: &str) -> Result<()> {
+        if !self.model_exists(model_id).await? {
+            return Err(RegistryError::NotFound(format!("model '{model_id}'")));
+        }
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        let deleted = sqlx::query("DELETE FROM model_assets WHERE id=? AND model_id=?")
+            .bind(asset_id)
+            .bind(model_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_error)?
+            .rows_affected();
+
+        if deleted == 0 {
+            return Err(RegistryError::NotFound(format!("asset '{asset_id}'")));
+        }
+
+        insert_event(
+            &mut tx,
+            "model.asset.deleted",
+            actor,
+            Some(model_id),
+            json!({"id": asset_id}),
+        )
+        .await?;
+
+        tx.commit().await.map_err(db_error)?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -1263,7 +1293,7 @@ pub async fn run_server(config: RegistryConfig) -> std::result::Result<(), Serve
     )?;
     let store = Arc::new(SqliteStore::connect(&config.database_path).await?);
     let service = registry_core::RegistryService::new(store);
-    let state = registry_api::AppState::new(service, token, now_unix());
+    let state = registry_api::AppState::new(service, token, now_unix(), config.data_dir.clone());
     let app = registry_api::router(state);
     let app = if let Some(origin) = &config.cors_origin {
         let origin = origin
@@ -1422,6 +1452,7 @@ mod tests {
             service,
             token.clone(),
             registry_core::now_unix(),
+            std::env::temp_dir().join("raphael-registry-test-assets"),
         ));
 
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
@@ -1778,6 +1809,63 @@ mod tests {
         let report = service.integrity_report().await.unwrap();
         assert!(!report.ok);
         assert!(report.issues.iter().any(|issue| issue.code == "bad_json"));
+    }
+
+    #[tokio::test]
+    async fn assets_can_be_deleted_without_leaving_registry_rows() {
+        use registry_core::{AssetKind, ModelType, NewModel, NewModelAsset};
+
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = RegistryService::new(store.clone());
+        let model = service
+            .create_model(
+                "test",
+                NewModel {
+                    id: Some("model_asset_delete".into()),
+                    name: "Asset delete".into(),
+                    model_type: ModelType::Checkpoint,
+                    creator: None,
+                    description: None,
+                    base_model: None,
+                    extensions: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        let asset = service
+            .add_asset(
+                "test",
+                &model.id,
+                NewModelAsset {
+                    id: Some("asset_delete".into()),
+                    kind: AssetKind::Thumbnail,
+                    path: "assets/model_asset_delete/asset_delete.png".into(),
+                    source: Some("https://example.invalid/image.png".into()),
+                    metadata: json!({"sha256":"a".repeat(64)}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(service.list_assets(&model.id).await.unwrap().len(), 1);
+        service
+            .delete_asset("test", &model.id, &asset.id)
+            .await
+            .unwrap();
+        assert!(service.list_assets(&model.id).await.unwrap().is_empty());
+
+        let events = service.list_events(0, 100).await.unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.event_type == "model.asset.attached")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.event_type == "model.asset.deleted")
+        );
     }
 
     #[tokio::test]
