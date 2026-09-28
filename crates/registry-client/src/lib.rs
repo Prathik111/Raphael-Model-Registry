@@ -258,13 +258,8 @@ impl RegistryClient {
     }
 
     pub async fn assets(&self, id: &str) -> Result<Vec<registry_core::ModelAsset>, ClientError> {
-        self.send_json(
-            self.request(
-                reqwest::Method::GET,
-                &format!("/api/v1/models/{id}/assets"),
-            ),
-        )
-        .await
+        self.send_json(self.request(reqwest::Method::GET, &format!("/api/v1/models/{id}/assets")))
+            .await
     }
 
     pub async fn delete_asset(&self, model_id: &str, asset_id: &str) -> Result<(), ClientError> {
