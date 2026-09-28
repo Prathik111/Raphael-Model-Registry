@@ -619,12 +619,7 @@ pub trait AssetRepository: Send + Sync {
         model_id: &str,
         input: NewModelAsset,
     ) -> Result<ModelAsset>;
-    async fn delete_asset(
-        &self,
-        actor: &str,
-        model_id: &str,
-        asset_id: &str,
-    ) -> Result<()>;
+    async fn delete_asset(&self, actor: &str, model_id: &str, asset_id: &str) -> Result<()>;
 }
 
 #[async_trait]
@@ -853,12 +848,7 @@ impl RegistryService {
         self.repo.add_asset(actor, model_id, input).await
     }
 
-    pub async fn delete_asset(
-        &self,
-        actor: &str,
-        model_id: &str,
-        asset_id: &str,
-    ) -> Result<()> {
+    pub async fn delete_asset(&self, actor: &str, model_id: &str, asset_id: &str) -> Result<()> {
         self.repo.delete_asset(actor, model_id, asset_id).await
     }
 
