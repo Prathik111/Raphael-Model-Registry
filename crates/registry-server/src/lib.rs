@@ -1819,6 +1819,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn assets_can_be_deleted_without_leaving_registry_rows() {
+        use registry_core::{AssetKind, ModelType, NewModel, NewModelAsset};
+
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        let service = RegistryService::new(store.clone());
+        let model = service
+            .create_model(
+                "test",
+                NewModel {
+                    id: Some("model_asset_delete".into()),
+                    name: "Asset delete".into(),
+                    model_type: ModelType::Checkpoint,
+                    creator: None,
+                    description: None,
+                    base_model: None,
+                    extensions: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        let asset = service
+            .add_asset(
+                "test",
+                &model.id,
+                NewModelAsset {
+                    id: Some("asset_delete".into()),
+                    kind: AssetKind::Thumbnail,
+                    path: "assets/model_asset_delete/asset_delete.png".into(),
+                    source: Some("https://example.invalid/image.png".into()),
+                    metadata: json!({"sha256":"a".repeat(64)}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(service.list_assets(&model.id).await.unwrap().len(), 1);
+        service
+            .delete_asset("test", &model.id, &asset.id)
+            .await
+            .unwrap();
+        assert!(service.list_assets(&model.id).await.unwrap().is_empty());
+
+        let events = service.list_events(0, 100).await.unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "model.asset.attached"));
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "model.asset.deleted"));
+    }
+
+    #[tokio::test]
     async fn tags_relationships_and_events_are_durable() {
         let store = Arc::new(SqliteStore::in_memory().await.unwrap());
         let service = RegistryService::new(store);
