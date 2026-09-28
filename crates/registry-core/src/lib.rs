@@ -907,13 +907,16 @@ fn available_status() -> FileStatus {
 }
 
 #[test]
-    fn model_type_accepts_legacy_control_net_spelling() {
-        let parsed: ModelType = serde_json::from_str(""control_net"").unwrap();
-        assert_eq!(parsed, ModelType::ControlNet);
-        assert_eq!(serde_json::to_string(&ModelType::ControlNet).unwrap(), ""controlnet"");
-    }
+fn model_type_accepts_legacy_control_net_spelling() {
+    let parsed: ModelType = serde_json::from_str("\"control_net\"").unwrap();
+    assert_eq!(parsed, ModelType::ControlNet);
+    assert_eq!(
+        serde_json::to_string(&ModelType::ControlNet).unwrap(),
+        "\"controlnet\""
+    );
+}
 
-    #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
