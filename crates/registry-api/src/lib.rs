@@ -1,6 +1,7 @@
 use axum::{
+    body::Bytes,
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{
         IntoResponse, Response,
@@ -16,7 +17,7 @@ use registry_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{convert::Infallible, sync::Arc, time::Duration};
+use std::{convert::Infallible, path::{Path as FsPath, PathBuf}, sync::Arc, time::Duration};
 use tokio::time::sleep;
 
 #[derive(Clone)]
@@ -24,15 +25,12 @@ pub struct AppState {
     pub service: RegistryService,
     pub token: Arc<str>,
     pub started_at: i64,
+    pub asset_dir: Arc<PathBuf>,
 }
 
 impl AppState {
-    pub fn new(service: RegistryService, token: impl Into<Arc<str>>, started_at: i64) -> Self {
-        Self {
-            service,
-            token: token.into(),
-            started_at,
-        }
+    pub fn new(service: RegistryService, token: impl Into<Arc<str>>, started_at: i64, asset_dir: impl Into<PathBuf>) -> Self {
+        Self { service, token: token.into(), started_at, asset_dir: Arc::new(asset_dir.into()) }
     }
 }
 
@@ -213,6 +211,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(list_assets).post(add_asset),
         )
         .route(
+            "/api/v1/models/{id}/assets/{asset_id}/content",
+            axum::routing::get(get_asset_content).post(upload_asset_content),
+        )
+        .route(
             "/api/v1/models/{id}/relationships",
             axum::routing::get(list_relationships).post(add_relationship),
         )
@@ -235,6 +237,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/events/snapshot",
             axum::routing::get(events_snapshot),
         )
+        .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .with_state(state)
 }
 
@@ -517,6 +520,67 @@ async fn add_asset(
             state.service.add_asset(&actor(&headers), &id, input).await,
         )?),
     ))
+}
+
+async fn get_asset_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, asset_id)): Path<(String, String)>,
+) -> ApiResult<Response> {
+    require_auth(&headers, &state.token)?;
+    let asset = core(state.service.list_assets(&id).await)?
+        .into_iter()
+        .find(|asset| asset.id == asset_id)
+        .ok_or_else(|| ApiError { status: StatusCode::NOT_FOUND, message: "asset not found".into() })?;
+    let relative = FsPath::new(&asset.path);
+    if relative.is_absolute() || relative.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
+        return Err(ApiError { status: StatusCode::BAD_REQUEST, message: "invalid stored asset path".into() });
+    }
+    let path = state.asset_dir.join(relative);
+    let bytes = tokio::fs::read(&path).await.map_err(|_| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: "asset content not found".into(),
+    })?;
+    let content_type = match path.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+    Ok((StatusCode::OK, [(header::CONTENT_TYPE, content_type)], Bytes::from(bytes)).into_response())
+}
+
+async fn upload_asset_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ApiResult<(StatusCode, Json<registry_core::ModelAsset>)> {
+    require_auth(&headers, &state.token)?;
+    if body.is_empty() {
+        return Err(ApiError { status: StatusCode::BAD_REQUEST, message: "asset body is empty".into() });
+    }
+    let kind = headers.get("x-raphael-asset-kind").and_then(|v| v.to_str().ok()).unwrap_or("preview")
+        .parse::<registry_core::AssetKind>().map_err(ApiError::from_core)?;
+    let extension = match headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("") {
+        "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/avif" => "avif", "image/gif" => "gif", _ => "bin",
+    };
+    let asset_id = registry_core::new_id("asset");
+    let relative = PathBuf::from("assets").join(&id).join(format!("{asset_id}.{extension}"));
+    let path = state.asset_dir.join(&relative);
+    if let Some(parent) = path.parent() { tokio::fs::create_dir_all(parent).await.map_err(|e| ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("could not prepare asset storage: {e}") })?; }
+    tokio::fs::write(&path, &body).await.map_err(|e| ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("could not store asset: {e}") })?;
+    let source = headers.get("x-raphael-asset-source").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let metadata = json!({ "content_type": headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()), "size_bytes": body.len() });
+    match core(state.service.add_asset(&actor(&headers), &id, NewModelAsset {
+        id: Some(asset_id), kind, path: relative.to_string_lossy().replace('\\', "/"), source, metadata,
+    }).await) {
+        Ok(asset) => Ok((StatusCode::CREATED, Json(asset))),
+        Err(error) => { let _ = tokio::fs::remove_file(&path).await; Err(error) }
+    }
 }
 
 async fn list_relationships(
