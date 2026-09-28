@@ -864,19 +864,12 @@ impl registry_core::AssetRepository for SqliteStore {
         asset_from_row(&row)
     }
 
-    async fn delete_asset(
-        &self,
-        actor: &str,
-        model_id: &str,
-        asset_id: &str,
-    ) -> Result<()> {
+    async fn delete_asset(&self, actor: &str, model_id: &str, asset_id: &str) -> Result<()> {
         if !self.model_exists(model_id).await? {
             return Err(RegistryError::NotFound(format!("model '{model_id}'")));
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
-        let deleted = sqlx::query(
-            "DELETE FROM model_assets WHERE id=? AND model_id=?",
-        )
+        let deleted = sqlx::query("DELETE FROM model_assets WHERE id=? AND model_id=?")
         .bind(asset_id)
         .bind(model_id)
         .execute(&mut *tx)
@@ -1863,12 +1856,16 @@ mod tests {
         assert!(service.list_assets(&model.id).await.unwrap().is_empty());
 
         let events = service.list_events(0, 100).await.unwrap();
-        assert!(events
-            .iter()
-            .any(|event| event.event_type == "model.asset.attached"));
-        assert!(events
-            .iter()
-            .any(|event| event.event_type == "model.asset.deleted"));
+        assert!(
+            events
+                .iter()
+                .any(|event| event.event_type == "model.asset.attached")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.event_type == "model.asset.deleted")
+        );
     }
 
     #[tokio::test]
