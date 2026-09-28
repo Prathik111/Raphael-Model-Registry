@@ -1,6 +1,6 @@
 use axum::{
-    body::Bytes,
     Json, Router,
+    body::Bytes,
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{
@@ -18,7 +18,12 @@ use registry_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::{convert::Infallible, path::{Path as FsPath, PathBuf}, sync::Arc, time::Duration};
+use std::{
+    convert::Infallible,
+    path::{Path as FsPath, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time::sleep;
 
 #[derive(Clone)]
@@ -30,8 +35,18 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(service: RegistryService, token: impl Into<Arc<str>>, started_at: i64, asset_dir: impl Into<PathBuf>) -> Self {
-        Self { service, token: token.into(), started_at, asset_dir: Arc::new(asset_dir.into()) }
+    pub fn new(
+        service: RegistryService,
+        token: impl Into<Arc<str>>,
+        started_at: i64,
+        asset_dir: impl Into<PathBuf>,
+    ) -> Self {
+        Self {
+            service,
+            token: token.into(),
+            started_at,
+            asset_dir: Arc::new(asset_dir.into()),
+        }
     }
 }
 
@@ -580,7 +595,10 @@ async fn get_asset_content(
     let asset = core(state.service.list_assets(&id).await)?
         .into_iter()
         .find(|asset| asset.id == asset_id)
-        .ok_or_else(|| ApiError { status: StatusCode::NOT_FOUND, message: "asset not found".into() })?;
+        .ok_or_else(|| ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "asset not found".into(),
+        })?;
     let path = asset_storage_path(&state, &asset)?;
     let bytes = tokio::fs::read(&path).await.map_err(|_| ApiError {
         status: StatusCode::NOT_FOUND,
@@ -651,18 +669,19 @@ async fn upload_asset_content(
                 message: format!("could not prepare asset storage: {e}"),
             })?;
     }
-    tokio::fs::write(&path, &body)
-        .await
-        .map_err(|e| ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("could not store asset: {e}"),
-        })?;
+    tokio::fs::write(&path, &body).await.map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("could not store asset: {e}"),
+    })?;
     let source = headers
         .get("x-raphael-asset-source")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
     let digest = Sha256::digest(&body);
-    let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let sha256 = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let metadata = json!({
         "content_type": headers
             .get(header::CONTENT_TYPE)
