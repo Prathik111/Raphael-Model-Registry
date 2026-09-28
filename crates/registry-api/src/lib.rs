@@ -373,8 +373,9 @@ async fn delete_model(
     let assets = core(state.service.list_assets(&id).await)?;
     core(state.service.delete_model(&actor(&headers), &id).await)?;
     for asset in assets {
-        let path = asset_storage_path(&state, &asset)?;
-        let _ = tokio::fs::remove_file(path).await;
+        if let Ok(path) = asset_storage_path(&state, &asset) {
+            let _ = tokio::fs::remove_file(path).await;
+        }
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -575,14 +576,16 @@ async fn delete_asset(
             status: StatusCode::NOT_FOUND,
             message: "asset not found".into(),
         })?;
-    let path = asset_storage_path(&state, &asset)?;
+    let path = asset_storage_path(&state, &asset).ok();
     core(
         state
             .service
             .delete_asset(&actor(&headers), &id, &asset_id)
             .await,
     )?;
-    let _ = tokio::fs::remove_file(path).await;
+    if let Some(path) = path {
+        let _ = tokio::fs::remove_file(path).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
