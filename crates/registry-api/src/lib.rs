@@ -147,6 +147,13 @@ struct StatusResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct CapabilitiesResponse {
+    api_version: &'static str,
+    asset_content_upload: bool,
+    asset_content_download: bool,
+}
+
+#[derive(Debug, Serialize)]
 struct DirectCompatibilityResponse {
     checkpoint: String,
     lora: String,
@@ -186,6 +193,7 @@ fn core<T>(result: CoreResult<T>) -> ApiResult<T> {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", axum::routing::get(health))
+        .route("/api/v1/capabilities", axum::routing::get(capabilities))
         .route("/api/v1/status", axum::routing::get(status))
         .route("/api/v1/model-types", axum::routing::get(model_types))
         .route(
@@ -270,6 +278,14 @@ async fn health() -> Json<HealthResponse> {
         status: "ok",
         service: "raphael-model-registry",
         api_version: "v1",
+    })
+}
+
+async fn capabilities() -> Json<CapabilitiesResponse> {
+    Json(CapabilitiesResponse {
+        api_version: "v1",
+        asset_content_upload: true,
+        asset_content_download: true,
     })
 }
 
