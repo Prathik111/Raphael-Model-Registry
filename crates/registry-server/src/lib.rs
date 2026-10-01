@@ -1611,6 +1611,36 @@ mod tests {
             assert!(request.send().await.unwrap().status().is_success());
         }
 
+        let upload_body = b"test-image-bytes".to_vec();
+        let upload_response = client
+            .post(format!(
+                "{base}/api/v1/models/{}/assets/content",
+                checkpoint.id
+            ))
+            .bearer_auth(&token)
+            .header("content-type", "image/png")
+            .header("x-raphael-asset-kind", "thumbnail")
+            .header("x-raphael-asset-source", "test")
+            .body(upload_body.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(upload_response.status(), reqwest::StatusCode::CREATED);
+        let uploaded_asset: registry_core::ModelAsset = upload_response.json().await.unwrap();
+        assert_eq!(uploaded_asset.kind, registry_core::AssetKind::Thumbnail);
+
+        let content_response = client
+            .get(format!(
+                "{base}/api/v1/models/{}/assets/{}/content",
+                checkpoint.id, uploaded_asset.id
+            ))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(content_response.status(), reqwest::StatusCode::OK);
+        assert_eq!(content_response.bytes().await.unwrap().to_vec(), upload_body);
+
         let compatibility = client
             .get(format!(
                 "{base}/api/v1/compatibility?checkpoint={}&lora=model_http_lora",
