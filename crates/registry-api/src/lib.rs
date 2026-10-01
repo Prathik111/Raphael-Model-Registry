@@ -227,6 +227,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(list_assets).post(add_asset),
         )
         .route(
+            "/api/v1/models/{id}/assets/content",
+            axum::routing::post(upload_asset_content),
+        )
+        .route(
             "/api/v1/models/{id}/assets/{asset_id}",
             delete(delete_asset),
         )
