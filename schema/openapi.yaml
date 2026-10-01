@@ -353,6 +353,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ModelAsset'
+  /api/v1/models/{id}/assets/content:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      summary: Upload binary asset content
+      parameters:
+        - in: header
+          name: content-type
+          required: true
+          schema: {type: string}
+        - in: header
+          name: x-raphael-asset-kind
+          required: false
+          schema: {type: string, enum: [thumbnail, cover, gallery, preview]}
+        - in: header
+          name: x-raphael-asset-source
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream: {}
+      responses:
+        '201':
+          description: Stored asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelAsset'
   /api/v1/models/{id}/assets/{asset_id}/content:
     parameters:
       - $ref: '#/components/parameters/id'
