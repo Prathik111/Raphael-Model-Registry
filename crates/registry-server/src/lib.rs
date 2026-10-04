@@ -383,8 +383,12 @@ impl ModelRepository for SqliteStore {
                 .push(')');
         }
         if let Some(model_type) = &query.model_type {
-            qb.push(" AND m.model_type=")
-                .push_bind(model_type.to_string());
+            // Registry model_type values are canonical strings, but older
+            // databases may contain different casing. Typed consumers such
+            // as /api/v1/checkpoints must not silently lose those records.
+            qb.push(" AND lower(m.model_type)=lower(")
+                .push_bind(model_type.to_string())
+                .push(')');
         }
         if let Some(tag) = &query.tag {
             qb.push(" AND EXISTS (SELECT 1 FROM model_tags mt JOIN tags t ON t.name=mt.tag_name WHERE mt.model_id=m.id AND lower(t.name)=lower(")
