@@ -1152,7 +1152,7 @@ fn default_registry_data_dir() -> PathBuf {
     }
 
     ProjectDirs::from("com", "Raphael", "ModelRegistry")
-        .map(|p| p.data_dir().join("data"))
+        .map(|p| p.data_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".raphael-model-registry").join("data"))
 }
 
