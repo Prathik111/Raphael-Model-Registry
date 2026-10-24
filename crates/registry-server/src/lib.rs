@@ -1139,11 +1139,26 @@ pub struct RegistryConfig {
     pub allow_insecure_lan: bool,
 }
 
+fn default_registry_data_dir() -> PathBuf {
+    // Keep the standalone Registry's default aligned with all Raphael clients.
+    // On Windows, use LocalAppData rather than ProjectDirs::data_dir(), which
+    // resolves to a different AppData location and can create a second token.
+    #[cfg(windows)]
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local_app_data)
+            .join("Raphael")
+            .join("ModelRegistry")
+            .join("data");
+    }
+
+    ProjectDirs::from("com", "Raphael", "ModelRegistry")
+        .map(|p| p.data_dir().join("data"))
+        .unwrap_or_else(|| PathBuf::from(".raphael-model-registry").join("data"))
+}
+
 impl RegistryConfig {
     pub fn from_env(data_dir: Option<PathBuf>) -> Self {
-        let default_data_dir = ProjectDirs::from("com", "Raphael", "ModelRegistry")
-            .map(|p| p.data_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from(".raphael-model-registry"));
+        let default_data_dir = default_registry_data_dir();
         let data_dir = data_dir
             .or_else(|| std::env::var_os("RAPHAEL_REGISTRY_DATA_DIR").map(PathBuf::from))
             .unwrap_or(default_data_dir);
